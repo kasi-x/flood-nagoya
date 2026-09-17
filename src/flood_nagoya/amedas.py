@@ -47,22 +47,24 @@ def hourly_url(prec_no: int, block_no: str, day: date) -> str:
     )
 
 
+def _urlopen_text(req: urllib.request.Request) -> str:
+    with urllib.request.urlopen(  # noqa: S310 - https-only data source
+        req, timeout=REQUEST_TIMEOUT
+    ) as resp:
+        return resp.read().decode("utf-8", errors="replace")
+
+
 def fetch_hourly_html(prec_no: int, block_no: str, day: date, retries: int = 3) -> str:
     """Download the etrn hourly table page for one station and day."""
     req = urllib.request.Request(  # noqa: S310 - https-only data source
         hourly_url(prec_no, block_no, day), headers={"User-Agent": USER_AGENT}
     )
-    for attempt in range(retries):
+    for attempt in range(retries - 1):
         try:
-            with urllib.request.urlopen(  # noqa: S310 - https-only data source
-                req, timeout=REQUEST_TIMEOUT
-            ) as resp:
-                return resp.read().decode("utf-8", errors="replace")
+            return _urlopen_text(req)
         except (urllib.error.URLError, TimeoutError, OSError):
-            if attempt == retries - 1:
-                raise
             time.sleep(1.0 + attempt)
-    raise AssertionError("unreachable")
+    return _urlopen_text(req)  # final attempt: let errors propagate
 
 
 def _cell_to_float(cell: str) -> float | None:

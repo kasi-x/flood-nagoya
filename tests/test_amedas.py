@@ -17,6 +17,7 @@ from flood_nagoya.amedas import fetch_hourly_html
 from flood_nagoya.amedas import generate
 from flood_nagoya.amedas import hourly_url
 from flood_nagoya.amedas import parse_hourly_precip
+from flood_nagoya.amedas import REQUEST_TIMEOUT
 from flood_nagoya.amedas import Scenario
 from flood_nagoya.amedas import scenario_path
 from flood_nagoya.amedas import write_index
@@ -133,9 +134,10 @@ class _FakeResponse:
 def test_fetch_hourly_html_success(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: dict[str, str] = {}
 
-    def fake_urlopen(req: urllib.request.Request, _timeout: float) -> _FakeResponse:
+    def fake_urlopen(req: urllib.request.Request, timeout: float) -> _FakeResponse:
         seen["url"] = req.full_url
         seen["ua"] = req.headers["User-agent"]
+        seen["timeout"] = str(timeout)
         return _FakeResponse(FIXTURE.read_bytes())
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
@@ -143,19 +145,23 @@ def test_fetch_hourly_html_success(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "97.5" in html
     assert "block_no=47636" in seen["url"]
     assert seen["ua"].startswith("flood-nagoya/")
+    assert seen["timeout"] == str(REQUEST_TIMEOUT)
 
 
 def test_fetch_hourly_html_retries_then_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("flood_nagoya.amedas.time.sleep", lambda _seconds: None)
+    timeouts: list[float] = []
 
-    def fake_urlopen(_req: urllib.request.Request, _timeout: float) -> _FakeResponse:
+    def fake_urlopen(_req: urllib.request.Request, timeout: float) -> _FakeResponse:
+        timeouts.append(timeout)
         raise urllib.error.URLError("boom")
 
     monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
     with pytest.raises(urllib.error.URLError):
         fetch_hourly_html(51, "47636", date(2026, 9, 8), retries=3)
+    assert len(timeouts) == 3  # every attempt was made before giving up
 
 
 def test_cli_rain_scenario(tmp_path: Path, mocker: pytest_mock.MockerFixture) -> None:
