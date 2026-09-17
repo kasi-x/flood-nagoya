@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from argparse import ArgumentParser
 from collections.abc import Sequence
+from datetime import date
+from pathlib import Path
 
 from . import __version__
 
@@ -20,6 +22,14 @@ def main(args: Sequence[str] | None = None) -> None:
     sub.add_parser("build", help="DEM+建物からWebアプリ用タイル/オーバービューを生成する")
     sub.add_parser("serve", help="Webアプリをローカル配信する")
 
+    rain = sub.add_parser(
+        "rain-scenario",
+        help="AMeDAS観測降雨からハイエトグラフシナリオJSONを生成する",
+    )
+    rain.add_argument("--date", required=True, help="対象日 (YYYY-MM-DD)")
+    rain.add_argument("--station", default="名古屋", help="AMeDAS地点名 (既定: 名古屋)")
+    rain.add_argument("--out", type=Path, default=None, help="出力先ディレクトリ (既定: web/scenarios)")
+
     parsed = parser.parse_args(args)
     if parsed.command == "download-dem":
         from .gsitiles import download_bbox  # noqa: PLC0415 - keep CLI startup fast
@@ -33,6 +43,12 @@ def main(args: Sequence[str] | None = None) -> None:
         from .server import serve  # noqa: PLC0415 - keep CLI startup fast
 
         serve()
+    elif parsed.command == "rain-scenario":
+        from .amedas import generate  # noqa: PLC0415 - keep CLI startup fast
+
+        day = date.fromisoformat(parsed.date)
+        path = generate(day, parsed.station, parsed.out)
+        print(f"scenario written: {path}")
 
 
 if __name__ == "__main__":

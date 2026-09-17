@@ -136,3 +136,4 @@ build/micropython-src/
 web/tiles/
 web/overview/
 web/meta.json
+web/scenarios/

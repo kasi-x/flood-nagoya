@@ -54,8 +54,30 @@ uv run python -m flood_nagoya serve   # http://127.0.0.1:8642/
 1. **地図**上で範囲をドラッグ → その範囲の高解像度 (3.9m) シミュレーションが開始
 2. または「名古屋市全域で実行」で広域モード (15.6m)
 3. 降雨シナリオ (ゲリラ豪雨100mm/h、線状降水帯80mm/h×3h、台風50mm/h×6h) を選択
+   - 「観測降雨」には `rain-scenario` で生成した **AMeDAS実測ハイエトグラフ** も現れる (下記)
 4. スライダーで降雨強度・排水能力・粗度等を調整、表示を水深/流速/最大浸水深で切替
 5. Esc または「地図へ戻る」で地図に戻り、別の範囲を選択。Space+ドラッグで地図パン
+
+## 実際の大雨を再現する (観測降雨シナリオ)
+
+気象庁「過去の気象データ検索」の1時間降水量 (AMeDAS) を取得し、
+実測のハイエトグラフでシミュレーションできます。
+
+```bash
+# 例: 2026-09-08 の名古屋の記録的豪雨 (線状降水帯, 1時間97.5mm・日合計219.5mm)
+uv run python -m flood_nagoya rain-scenario --date 2026-09-08
+
+uv run python -m flood_nagoya serve   # 「観測降雨」から「名古屋 2026-09-08」を選択
+```
+
+- シナリオは `web/scenarios/rain_YYYYMMDD_<地点>.json` に書き出され、
+  Webアプリの「観測降雨」欄に降雨の推移 (スパークライン) つきで並びます
+- 時刻は JST。etrn表の「17時」= 16〜17時の雨なので、ハイエトグラフの
+  t=16h のレートとして反映されます
+- AMeDASは地点観測のため**域内一様な雨**として与えます。地点ごとの空間分布
+  (レーダー雨量・解析雨量) を用いた再現は将来課題です
+- 計器・設置場所により市公式発表値 (例: この事案の「1時間104.5mm」) と
+  AMeDAS値 (97.5mm) は異なります
 
 ## データ出典・ライセンス
 
@@ -83,6 +105,7 @@ src/flood_nagoya/
   plateau_buildings.py PLATEAU CityGML → 建物高さラスタ
   hydro.py             平地補間 (priority-flood + ε勾配) + D8流路累積
   pipeline.py          Web用タイル/オーバービュー/meta.json 生成
+  amedas.py            JMA過去データ → 観測降雨シナリオ (rain-scenario)
   server.py            静的配信 (no-cache)
 web/
   sim.js               WebGL2 浅水方程式エンジン

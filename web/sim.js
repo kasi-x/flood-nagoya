@@ -269,6 +269,8 @@ export class FloodSim {
     this.params = { rain: 0, drain: 15, infil: 1, manning: 0.03, bldgOn: 1 };
     this.time = 0;                      // simulated seconds
     this.rainLeft = 0;                  // seconds of rain remaining
+    this.rainSeries = null;             // observed hyetograph [[t_sec, mm_h], ...]
+    this.rainEnd = 0;                   // series end time (seconds)
     this.paused = true;
     this.volume0 = 0;
     this.stats = null;
@@ -314,16 +316,40 @@ export class FloodSim {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, this.W, this.H, 0, gl.RGBA, gl.FLOAT, empty);
     }
     this.time = 0;
-    this.rainLeft = this.durationMin * 60 || 0;
+    this.rainLeft = this.rainSeries ? this.rainEnd : this.durationMin * 60 || 0;
     this.stats = null;
   }
 
   startScenario(rainMMh, durationMin) {
     this.params.rain = rainMMh;
+    this.rainSeries = null;
     this.durationMin = durationMin;
     this.rainLeft = durationMin * 60;
     this.time = 0;
     this.paused = false;
+  }
+
+  /** Observed rainfall: piecewise-linear hyetograph [[t_sec, mm_h], ...]. */
+  startHyetograph(series) {
+    this.rainSeries = series;
+    this.rainEnd = series[series.length - 1][0];
+    this.rainLeft = this.rainEnd;
+    this.time = 0;
+    this.paused = false;
+  }
+
+  /** Rain intensity at model time t (mm/h); constant rate when no series. */
+  rainRateAt(t) {
+    const s = this.rainSeries;
+    if (!s) return this.params.rain;
+    if (t <= s[0][0]) return s[0][1];
+    for (let i = 1; i < s.length; i++) {
+      if (t <= s[i][0]) {
+        const t0 = s[i - 1][0], r0 = s[i - 1][1];
+        return r0 + (s[i][1] - r0) * (t - t0) / Math.max(s[i][0] - t0, 1e-6);
+      }
+    }
+    return 0;
   }
 
   setParams(p) { Object.assign(this.params, p); }
@@ -360,11 +386,12 @@ export class FloodSim {
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.bldgTex);    gl.uniform1i(u.uBldg, 2);
     const p = this.params;
     const rainOn = this.rainLeft > 0 && !this.paused;
+    const rainMMh = this.rainSeries ? this.rainRateAt(this.time) : p.rain;
     gl.uniform1f(u.uDt, dt);
     gl.uniform1f(u.uDx, this.dx);
     gl.uniform1f(u.uG, 9.81);
     gl.uniform1f(u.uManning, p.manning);
-    gl.uniform1f(u.uRain, rainOn ? p.rain / 1000 / 3600 : 0);
+    gl.uniform1f(u.uRain, rainOn ? rainMMh / 1000 / 3600 : 0);
     gl.uniform1f(u.uDrain, p.drain / 1000 / 3600);
     gl.uniform1f(u.uInfil, p.infil / 1000 / 3600);
     gl.uniform1f(u.uBldgOn, p.bldgOn);
@@ -443,16 +470,15 @@ export class FloodSim {
       sumH += buf[i * 4]; f1 += buf[i * 4 + 1]; f2 += buf[i * 4 + 2]; f3 += buf[i * 4 + 3];
     }
     const cells = this.W * this.H;
+    // each reduction texel sums a 16x16 block: sumH is already the true
+    // total depth sum, while f1..f3 hold true counts divided by `block`
     const block = 256;
-    // each reduction texel covered `block` source cells
-    const areaPerUnit = this.dx * this.dx * block / Math.max(f1 + f2 + f3, 0); // unused
     const cellArea = this.dx * this.dx;
-    const nBlocks = this.rw * this.rh;
     this.stats = {
-      volume: sumH / nBlocks * block * cellArea,
-      a5: f1 / nBlocks * cellArea * block,
-      a30: f2 / nBlocks * cellArea * block,
-      a100: f3 / nBlocks * cellArea * block,
+      volume: sumH * cellArea,
+      a5: f1 * block * cellArea,
+      a30: f2 * block * cellArea,
+      a100: f3 * block * cellArea,
       cells,
     };
     return this.stats;
@@ -460,9 +486,21 @@ export class FloodSim {
 
   /** Rain volume that has fallen so far (m3). */
   rainVolume() {
-    const mmh = this.params.rain;
-    const secs = Math.min(this.time, (this.durationMin || 0) * 60);
-    return mmh / 1000 * secs * this.W * this.H * this.dx * this.dx;
+    let mmTotal;
+    if (this.rainSeries) {
+      const s = this.rainSeries;
+      const t = Math.min(this.time, this.rainEnd);
+      mmTotal = 0;
+      for (let i = 1; i < s.length; i++) {
+        const t1 = Math.min(s[i][0], t);
+        if (t1 <= s[i - 1][0]) break;
+        mmTotal += (s[i - 1][1] + s[i][1]) / 2 * (t1 - s[i - 1][0]) / 3600;
+        if (s[i][0] >= t) break;
+      }
+    } else {
+      mmTotal = this.params.rain * Math.min(this.time, (this.durationMin || 0) * 60) / 3600;
+    }
+    return mmTotal / 1000 * this.W * this.H * this.dx * this.dx;
   }
 
   dispose() {

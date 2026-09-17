@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import contextlib
+import errno
 import http.server
-import socketserver
 import webbrowser
 from functools import partial
 
@@ -24,11 +24,17 @@ def serve(host: str = "127.0.0.1", port: int = 8642, *, open_browser: bool = Fal
         msg = f"{WEB_DIR}/index.html not found — run the build first"
         raise SystemExit(msg)
     handler = partial(_NoCacheHandler, directory=str(WEB_DIR))
-    socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer((host, port), handler) as httpd:
-        url = f"http://{host}:{port}/"
-        print(f"serving {WEB_DIR} at {url} (Ctrl-C to stop)", flush=True)
-        if open_browser:
-            webbrowser.open(url)
-        with contextlib.suppress(KeyboardInterrupt):
-            httpd.serve_forever()
+    http.server.ThreadingHTTPServer.allow_reuse_address = True
+    try:
+        with http.server.ThreadingHTTPServer((host, port), handler) as httpd:
+            url = f"http://{host}:{port}/"
+            print(f"serving {WEB_DIR} at {url} (Ctrl-C to stop)", flush=True)
+            if open_browser:
+                webbrowser.open(url)
+            with contextlib.suppress(KeyboardInterrupt):
+                httpd.serve_forever()
+    except OSError as exc:
+        if exc.errno in (errno.EADDRINUSE, 98, 48):
+            msg = f"port {port} already in use — stop the other server first"
+            raise SystemExit(msg) from exc
+        raise

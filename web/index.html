@@ -7,10 +7,11 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<canvas id="gl"></canvas>
-<canvas id="gl3d" hidden></canvas>
+<canvas id="gl" aria-label="地図・シミュレーション表示"></canvas>
+<canvas id="gl3d" hidden aria-label="3D表示"></canvas>
 <div id="labels"></div>
-<div id="selbox" hidden></div>
+<div id="selbox" hidden><span id="selinfo"></span></div>
+<div id="north" title="北は上">N</div>
 
 <script type="importmap">
 { "imports": { "three": "./lib/three.module.min.js", "three/addons/": "./lib/addons/" } }
@@ -49,29 +50,46 @@
   </div>
   <h2>降雨シナリオ</h2>
   <div id="scenarios"></div>
-  <h2>条件</h2>
-  <div class="ctl"><label>降雨強度 <output id="rainVal"></output></label>
-    <input type="range" id="rain" min="0" max="200" step="5" value="80"></div>
-  <div class="ctl"><label>降雨継続時間 <output id="durationVal"></output></label>
-    <input type="range" id="duration" min="10" max="720" step="10" value="120"></div>
-  <div class="ctl"><label>下水道排水能力 <output id="drainVal"></output></label>
-    <input type="range" id="drain" min="0" max="60" step="1" value="20"></div>
-  <div class="ctl"><label>地盤浸透 <output id="infilVal"></output></label>
-    <input type="range" id="infil" min="0" max="30" step="1" value="1"></div>
-  <div class="ctl"><label>粗度係数 Manning n <output id="manningVal"></output></label>
-    <input type="range" id="manning" min="0.015" max="0.08" step="0.005" value="0.03"></div>
-  <div class="ctl"><label>計算速度 <output id="speedVal"></output></label>
-    <input type="range" id="speed" min="1" max="120" step="1" value="30"></div>
-  <div class="ctl">
-    <label class="chk"><input type="checkbox" id="bldgToggle" checked> PLATEAU建物を障害物として扱う</label>
-    <label class="chk"><input type="checkbox" id="photo3dToggle" checked> 3D: 航空写真を表示</label>
-    <label class="chk"><input type="checkbox" id="bldg3dToggle" checked> 3D: 建物を表示</label>
-  </div>
+  <h2 id="observedHead" hidden>観測降雨 (実測の再現)</h2>
+  <div id="observedScenarios"></div>
+
+  <h2>表示</h2>
   <div class="ctl disp">
     <label class="chk"><input type="radio" name="disp" value="depth" checked> 水深</label>
     <label class="chk"><input type="radio" name="disp" value="speed"> 流速</label>
     <label class="chk"><input type="radio" name="disp" value="max"> 最大浸水深</label>
   </div>
+  <div id="legend-depth">
+    <div class="legend"></div>
+    <div class="legend-ticks"><span>5cm</span><span>30cm</span><span>1m</span><span>3m+</span></div>
+  </div>
+  <div id="legend-speed" hidden>
+    <div class="legend legend-speed"></div>
+    <div class="legend-ticks"><span>0.3m/s</span><span>1</span><span>3</span><span>10m/s+</span></div>
+  </div>
+  <div id="legend-max" hidden>
+    <div class="legend"></div>
+    <div class="legend-ticks"><span>5cm</span><span>30cm</span><span>1m</span><span>3m+</span></div>
+    <p class="hint">計算開始以降の最大水深を記憶した浸水域</p>
+  </div>
+
+  <h2>条件</h2>
+  <div class="ctl"><label>降雨強度 <output id="rainVal"></output></label>
+    <input type="range" id="rain" min="0" max="200" step="5" value="80" aria-label="降雨強度 (mm/h)"></div>
+  <div class="ctl"><label>降雨継続時間 <output id="durationVal"></output></label>
+    <input type="range" id="duration" min="10" max="720" step="10" value="120" aria-label="降雨継続時間 (分)"></div>
+  <div class="ctl"><label>下水道排水能力 <output id="drainVal"></output></label>
+    <input type="range" id="drain" min="0" max="60" step="1" value="20" aria-label="下水道排水能力 (mm/h)"></div>
+  <div class="ctl"><label>地盤浸透 <output id="infilVal"></output></label>
+    <input type="range" id="infil" min="0" max="30" step="1" value="1" aria-label="地盤浸透 (mm/h)"></div>
+  <div class="ctl"><label>粗度係数 Manning n <output id="manningVal"></output></label>
+    <input type="range" id="manning" min="0.015" max="0.08" step="0.005" value="0.03" aria-label="粗度係数"></div>
+  <div class="ctl"><label>計算速度 <output id="speedVal"></output></label>
+    <input type="range" id="speed" min="1" max="120" step="1" value="30" aria-label="計算速度 (倍率)"></div>
+  <div class="ctl">
+    <label class="chk"><input type="checkbox" id="bldgToggle" checked> PLATEAU建物を障害物として扱う</label>
+  </div>
+
   <div class="row">
     <button id="pauseBtn" class="wide">⏸ 一時停止</button>
     <button id="resetBtn" class="wide">↺ リセット</button>
@@ -79,26 +97,33 @@
   <div class="row">
     <button id="btn3d" class="wide">🏔 3D表示に切り替え</button>
   </div>
+  <div class="ctl" id="view3dOpts" hidden>
+    <label class="chk"><input type="checkbox" id="photo3dToggle" checked> 航空写真を表示</label>
+    <label class="chk"><input type="checkbox" id="bldg3dToggle" checked> 建物を表示</label>
+    <p class="hint">ドラッグ=回転 / ホイール=ズーム / 右ドラッグ=移動</p>
+  </div>
 
   <h2>計算結果</h2>
+  <div id="rainBadge" class="badge rain">降雨中</div>
   <table id="stats">
     <tr><th>経過時間</th><td id="statTime">00:00</td></tr>
     <tr><th>降雨</th><td id="statRain">—</td></tr>
+    <tr><th>積算雨量</th><td id="statAcc">0 mm</td></tr>
     <tr><th>貯留量</th><td id="statVol">—</td></tr>
     <tr><th>氾濫面積 &gt;5cm</th><td id="statA5">—</td></tr>
     <tr><th>氾濫面積 &gt;30cm</th><td id="statA30">—</td></tr>
     <tr><th>氾濫面積 &gt;1m</th><td id="statA100">—</td></tr>
     <tr><th>描画 fps</th><td id="statFps">—</td></tr>
   </table>
+  <div class="statbar-wrap" title="水深5cm超の面積比">
+    <div id="statBar" class="statbar"></div>
+  </div>
 
-  <h2>水深の凡例</h2>
-  <div id="legend"></div>
-  <div class="legend-ticks"><span>5cm</span><span>30cm</span><span>1m</span><span>3m+</span></div>
   <p class="hint">水深0.05m未満は表示しません。本結果は下水道網を陽に解かない
   簡易アンサンブルであり、厳密な浸水予測ではありません。</p>
 </aside>
 
-<div id="toast" hidden></div>
-<script type="module" src="app.js?v=18h"></script>
+<div id="toast" hidden role="status" aria-live="polite"></div>
+<script type="module" src="app.js?v=19b"></script>
 </body>
 </html>

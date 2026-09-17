@@ -56,7 +56,9 @@ varying vec2 vUv;
 varying float vDepth;
 void main() {
   vUv = uv;
-  float h = texture2D(uState, uv).x;
+  // sim state comes from gl.readPixels (row 0 = south) while terrain/photo
+  // textures are north-first, so sample the water depth flipped in v
+  float h = texture2D(uState, vec2(uv.x, 1.0 - uv.y)).x;
   vDepth = h;
   vec4 t = texture2D(uTerr, uv);
   float bed = (t.r * 65536.0 + t.g * 256.0 + t.b) / 100.0;
