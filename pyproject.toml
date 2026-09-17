@@ -24,7 +24,6 @@ classifiers = [
 dynamic = [ "version" ]
 
 dependencies = [
-    "structlog",
     "duckdb",
     "pyarrow",
     "polars>=0.20.15",
@@ -186,7 +185,7 @@ min_confidence = 80
 # DEP004 pytest: pytest を import するのは tests/（fixture / raises /
 # MonkeyPatch）だけであり、正当な dev 専用利用。mcp_server のテストも同じ
 # ルールに触れるため、エンジン横断で無視する。
-per_rule_ignores = "DEP002=alembic|asgi-correlation-id|asyncpg|click|fastapi|httpx|pydantic|pydantic-settings|pendulum|prometheus-client|rich|slowapi|sqlalchemy|structlog|loguru|picologging|typer|uvicorn|duckdb|ipykernel|marimo|matplotlib|nbclient|nbstripout|openai|plotly|polars|pyarrow|seaborn|wandb,DEP003=flood_nagoya|requests,DEP004=pytest"
+per_rule_ignores = "DEP002=alembic|asgi-correlation-id|asyncpg|click|fastapi|httpx|pydantic|pydantic-settings|pendulum|prometheus-client|rich|slowapi|sqlalchemy|loguru|picologging|typer|uvicorn|duckdb|ipykernel|marimo|matplotlib|nbclient|nbstripout|openai|plotly|polars|pyarrow|seaborn|wandb,DEP003=flood_nagoya|requests,DEP004=pytest"
 # tasks.py/duties.py: root-level dev script, not project source -- deptry
 # would otherwise flag invoke/duty as DEP004 (dev-only dep imported by "source")
 exclude = ["tools", ".venv", ".pixi", ".task", "build", "dist"]
@@ -206,7 +205,7 @@ extend-exclude = ["tools", ".github/pages", "alembic", "*.md", "**/_version.py"]
 line-length = 120
 # 挙動を変える可能性があるため、自動修正は safe-fix に限定する。
 unsafe-fixes = false
-lint.logger-objects = ["flood_nagoya.logging_setup.get_logger"]
+lint.logger-objects = []
 
 lint.preview = true
 lint.explicit-preview-rules = true
@@ -347,10 +346,8 @@ indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
 docstring-code-format = true
-# logging_setup.py has long logging-library setup calls that format
-# differently at line-length 88 vs 120 (allow_japanese), so exclude it from
-# formatting (E501 is already ignored for it).
-exclude = ["src/flood_nagoya/logging_setup.py"]
+# ruff format uses line-length 120; keep this section in sync if it changes.
+exclude = []
 
 
 [tool.ruff.lint.pydocstyle]
@@ -419,8 +416,3 @@ suppress-none-returning = false
     "E501",   # line-too-long  CONTEXT: test_qa.py の assert メッセージ
     "PLR0912",# too-many-branches  CONTEXT: test_qa.py の依存宣言チェックは複数分岐が自然
 ]
-# logging_setup.py の長い呼び出し（structlog の ConsoleRenderer /
-# make_filtering_bound_logger、loguru の add() など）は line-length 設定により
-# ruff format が折り返しを変えるため、E501 は免除する。
-# 日本語 docstring の終端句読点（D415）とシングルトン設定の global（PLW0603）も免除。
-"src/flood_nagoya/logging_setup.py" = ["E501", "D", "PLW0603", "I001"]

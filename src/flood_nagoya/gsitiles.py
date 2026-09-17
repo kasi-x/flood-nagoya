@@ -72,19 +72,6 @@ def bbox_tile_range() -> tuple[int, int, int, int]:
     return x0, x1, y0, y1
 
 
-def bbox_tile_pixels() -> tuple[int, int, int, int]:
-    """Pixel bounds (px0, px1, py0, py1) of the bbox within the tile mosaic.
-
-    Pixel (0, 0) of the mosaic is the north-west corner of tile (x0, y0).
-    """
-    x0, _, y0, _ = bbox_tile_range()
-    px0 = round((lon_to_tile_x(LON_MIN) - x0) * TILE_SIZE)
-    px1 = round((lon_to_tile_x(LON_MAX) - x0) * TILE_SIZE)
-    py0 = round((lat_to_tile_y(LAT_MIN) - y0) * TILE_SIZE)  # south edge
-    py1 = round((lat_to_tile_y(LAT_MAX) - y0) * TILE_SIZE)  # north edge
-    return px0, px1, py1, py0
-
-
 def tile_url(x: int, y: int, layer: str = GSI_LAYER, zoom: int = GSI_ZOOM) -> str:
     return GSI_TILE_TXT.format(layer=layer, z=zoom, x=x, y=y)
 

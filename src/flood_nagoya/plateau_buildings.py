@@ -19,6 +19,7 @@ from PIL import Image
 from PIL import ImageDraw
 
 from .config import PLATEAU_EXTRACT_DIR
+from .config import Z15_CELL_AREA_M2
 from .gsitiles import bbox_tile_range
 from .gsitiles import lat_to_tile_y
 from .gsitiles import lon_to_tile_x
@@ -110,6 +111,6 @@ def rasterize_buildings(output_npz: Path | None = None) -> Path:
     covered = int((arr > 0).sum())
     print(
         f"buildings rasterized: {n_bldg} buildings, {covered} px covered "
-        f"({covered * 15.3 / 1e6:.1f} km2), saved to {output_npz}"
+        f"({covered * Z15_CELL_AREA_M2 / 1e6:.1f} km2), saved to {output_npz}"
     )
     return output_npz

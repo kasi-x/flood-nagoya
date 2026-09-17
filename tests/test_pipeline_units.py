@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
-from flood_nagoya.config import LAT_MAX, LAT_MIN, LON_MAX, LON_MIN
+from flood_nagoya import pipeline
+from flood_nagoya.config import LAT_MAX, LAT_MIN, LON_MAX, LON_MIN, Z15_M_PER_PX
 from flood_nagoya.gsitiles import (
     bbox_tile_range,
     lat_to_tile_y,
@@ -16,10 +19,11 @@ from flood_nagoya.gsitiles import (
 )
 from flood_nagoya.hydro import (
     d8_flow_directions,
+    drainage_network_mask,
     fill_sinks_priority_flood,
     flow_accumulation,
 )
-from flood_nagoya.pipeline import elevation_to_rgba
+from flood_nagoya.pipeline import build_overview, elevation_to_rgba, fill_voids
 
 
 def test_tile_math_roundtrip() -> None:
@@ -83,3 +87,36 @@ def test_elevation_rgba_encoding_roundtrip() -> None:
     decoded = (arr[..., 0] * 65536 + arr[..., 1] * 256 + arr[..., 2]) / 100.0
     assert decoded == pytest.approx(elev, abs=0.01)
     assert np.all(arr[..., 3] == 255)
+
+
+def test_fill_voids_sea_and_inland_holes() -> None:
+    mosaic = np.full((6, 6), 5.0, dtype=np.float32)
+    # border-connected void becomes sea (0 m); the interior hole is infilled
+    mosaic[0, 2] = np.nan
+    mosaic[2:4, 2:4] = np.nan
+    valid = np.isfinite(mosaic)
+    dem, sea = fill_voids(mosaic, valid)
+    assert dem[0, 2] == 0.0
+    assert bool(sea[0, 2])
+    assert not bool(sea[3, 3])
+    assert dem[2:4, 2:4] == pytest.approx(5.0)
+
+
+def test_build_overview_shape_and_m_per_px(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    dem = np.full((8, 12), 10.0, dtype=np.float32)
+    sea = np.zeros((8, 12), dtype=bool)
+    monkeypatch.setattr(pipeline, "WEB_DIR", tmp_path)
+    overview = build_overview(dem, sea)
+    assert overview["width"] == 3
+    assert overview["height"] == 2
+    assert overview["m_per_px"] == pytest.approx(pipeline.OVERVIEW_FACTOR * Z15_M_PER_PX)
+    assert (tmp_path / "overview" / "dem.png").exists()
+
+
+def test_drainage_network_mask_marks_valley_stream() -> None:
+    # V-shaped valley: the bottom row must accumulate the hillsides
+    dem = np.fromfunction(lambda y, x: abs(x - 2.0) + y * 0.5, (5, 5))
+    mask, acc = drainage_network_mask(dem, cell_size=15.0, threshold=4.0)
+    # the valley centreline collects the hillsides top-to-bottom
+    assert bool(mask[0, 2])
+    assert acc[0, 2] > acc[0, 0]

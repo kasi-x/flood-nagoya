@@ -29,6 +29,8 @@ from .config import RAW_DEM_DIR
 from .config import WEB_DIR
 from .config import WEB_META
 from .config import WEB_TILE_DIR
+from .config import Z15_CELL_AREA_M2
+from .config import Z15_M_PER_PX
 from .gsitiles import bbox_tile_range
 from .gsitiles import parse_dem_txt
 from .hydro import drainage_network_mask
@@ -78,6 +80,7 @@ def fill_voids(mosaic: np.ndarray, valid: np.ndarray) -> tuple[np.ndarray, np.nd
 
     arr = np.where(holes, 0.0, np.where(valid, mosaic, 0.0))
     weight = (valid | ~holes).astype(np.float64)
+    filled = holes.copy()
     for it in range(500):
         if not holes.any():
             break
@@ -89,6 +92,7 @@ def fill_voids(mosaic: np.ndarray, valid: np.ndarray) -> tuple[np.ndarray, np.nd
         holes[fill_now] = False
         if it > 0 and it % 50 == 0:
             print(f"  hole fill iter {it}, remaining {int(holes.sum())}")
+    out[filled] = arr[filled].astype(np.float32)  # write the infill back
     out[holes] = 0.0  # anything unreachable (should be none)
     return out.astype(np.float32), sea
 
@@ -146,8 +150,7 @@ def build_overview(mosaic: np.ndarray, sea: np.ndarray) -> dict[str, float | int
     sea_crop = sea[: oh * OVERVIEW_FACTOR, : ow * OVERVIEW_FACTOR]
     sea_blocks = sea_crop.reshape(oh, OVERVIEW_FACTOR, ow, OVERVIEW_FACTOR)
     sea_ov = sea_blocks.mean(axis=(1, 3)) > 0.5
-
-    px_per_cell = OVERVIEW_FACTOR * 3.919  # ~m/px at z15, Nagoya latitude
+    px_per_cell = OVERVIEW_FACTOR * Z15_M_PER_PX  # ~m/px at Nagoya latitude
     print(f"overview {ow}x{oh} (~{px_per_cell:.1f} m/px); hydrology running…")
     t0 = time.time()
     streams, acc = drainage_network_mask(overview.astype(np.float64), px_per_cell, STREAM_THRESHOLD_CELLS)
@@ -210,7 +213,7 @@ def build() -> None:
         "overview": overview,
         "elevation_encoding": "RGBA PNG: elev_m = (R*65536+G*256+B)/100, A=255 valid",
         "building_encoding": "RGB PNG: height_cm = R*256+G, 0 = no building",
-        "land_area_km2": float(np.sum(dem > 0.5) * 15.36e-6),
+        "land_area_km2": float(np.sum(dem > 0.5) * Z15_CELL_AREA_M2 / 1e6),
     }
     WEB_META.write_text(json.dumps(meta, ensure_ascii=False, indent=2))
     print(f"build complete in {time.time() - t0:.0f}s → {WEB_DIR}")

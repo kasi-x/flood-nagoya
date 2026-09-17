@@ -87,7 +87,7 @@ void main(){
     rainMS = mmh / 1000.0 / 3600.0;
   }
   float h1 = h + uDt/uDx * (inW - qE + inN - qS) - loss + rainMS * uDt;
-  h1 = max(h1, 0.0);
+  h1 = min(max(h1, 0.0), 30.0);   // 物理上限ガード (都市内水害で30mは起り得ない)
   if(wall){ h1 = 0.0; qE = 0.0; qS = 0.0; }
   oState = vec4(h1, qE, qS, max(s.w, h1));
 }`;

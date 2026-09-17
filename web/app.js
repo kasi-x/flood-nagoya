@@ -1,5 +1,5 @@
 // 名古屋市 雨水流出エミュレーター — map view, region selection, UI wiring.
-import { FloodSim, MODE_TERRAIN, MODE_DEPTH, MODE_SPEED, MODE_MAXDEPTH } from "./sim.js?v=19b";
+import { FloodSim, MODE_TERRAIN, MODE_DEPTH, MODE_SPEED, MODE_MAXDEPTH } from "./sim.js?v=19m";
 import { ThreeView } from "./view3d.js?v=18h";
 
 const Z15 = 15;
@@ -205,6 +205,7 @@ function startDefaultScene() {
   });
   startSimFromRect(r).then(() => {
     if (!view3dOn) set3d(true);
+    if (location.search.includes("noff")) { sim.paused = true; return; }  // 検証用
     // 見栄えのため30分だけ早送りして水を溜める (フレーム分割でGPUに負担をかけない)
     const ff = () => {
       if (sim.time >= 1800) return;
