@@ -1,5 +1,5 @@
 // 名古屋市 雨水流出エミュレーター — map view, region selection, UI wiring.
-import { FloodSim, MODE_TERRAIN, MODE_DEPTH, MODE_SPEED, MODE_MAXDEPTH } from "./sim.js?v=19a";
+import { FloodSim, MODE_TERRAIN, MODE_DEPTH, MODE_SPEED, MODE_MAXDEPTH } from "./sim.js?v=19b";
 import { ThreeView } from "./view3d.js?v=18h";
 
 const Z15 = 15;
@@ -40,6 +40,7 @@ let drag = null;               // region selection state
 let renderMode = MODE_DEPTH;
 let lastStatsT = 0;
 let fpsInfo = { last: performance.now(), dtAvg: 16 };
+let accMm = 0, accPrevT = 0, accPrevRate = 0;
 let mapReady = false;
 let mapDemTex = null, mapStreamsTex = null;
 let threeView = null, view3dOn = false, frameNo = 0;
@@ -60,7 +61,8 @@ function init() {
   });
   try {
     sim = new FloodSim(canvas);
-    window.__sim = sim;   // debugging / programmatic access
+    window.__sim = sim;
+    window.__sim = sim;
   } catch (err) {
     toast(err.message, 15000);
     return;
@@ -73,7 +75,6 @@ function init() {
   wireUI();
   window.addEventListener("resize", resizeCanvas);
   resizeCanvas();
-  window.__app = { startSimFromRect, startCitySim, backToMap, mapRectToZ15 };
   loadObservedScenarios();
 }
 
@@ -177,6 +178,7 @@ async function setupMap() {
     b.innerHTML = `<b>${sc.name}</b><span>${sc.desc}</span>`;
     b.onclick = () => {
       sim.startScenario(sc.rain, sc.min);
+      rainFrames.stop();
       $("rain").value = sc.rain;
       $("duration").value = sc.min;
       syncSliderLabels();
@@ -185,6 +187,37 @@ async function setupMap() {
     };
     scene.appendChild(b);
   }
+
+  startDefaultScene();
+}
+
+/** 起動時の既定シーン: 栄中心のPLATEAU View風3D (航空写真+建物)。 */
+function startDefaultScene() {
+  if (startDefaultScene.done || !meta) return;
+  startDefaultScene.done = true;
+  const SAKAI = LOCATIONS.find((l) => l.name === "栄");
+  const cx = (lonToX(SAKAI.lon, Z15) - meta.tile_range.x0) * TILE_PX;
+  const cy = (latToY(SAKAI.lat, Z15) - meta.tile_range.y0) * TILE_PX;
+  const halfW = 500, halfH = 400;  // ≒ 3.9 × 3.1 km
+  const r = mapRectToZ15({
+    x0: (cx - halfW) / OVERVIEW_FACTOR, y0: (cy - halfH) / OVERVIEW_FACTOR,
+    x1: (cx + halfW) / OVERVIEW_FACTOR, y1: (cy + halfH) / OVERVIEW_FACTOR,
+  });
+  startSimFromRect(r).then(() => {
+    if (!view3dOn) set3d(true);
+    // 見栄えのため30分だけ早送りして水を溜める (フレーム分割でGPUに負担をかけない)
+    const ff = () => {
+      if (sim.time >= 1800) return;
+      for (let i = 0; i < 400; i++) sim.step(0.05);  // 20秒/フレーム
+      if (threeView) {
+        threeView.updateWater(sim.readState());
+        threeView.controls.update();
+        threeView.renderer.render(threeView.scene, threeView.camera);
+      }
+      requestAnimationFrame(ff);
+    };
+    requestAnimationFrame(ff);
+  });
 }
 
 // ---------- observed rainfall (AMeDAS) scenarios ----------
@@ -241,13 +274,74 @@ async function loadObservedScenarios() {
     drawSparkline(spark, sc.series);
     b.appendChild(spark);
     b.onclick = () => {
-      sim.startHyetograph(sc.series);
+      if (sc.kind === "observed-rain") {
+        rainFrames.stop();
+        sim.startHyetograph(sc.series);
+        toast(`観測降雨を再現中: ${entry.name} — 実測ハイエトグラフで駆動 (降雨スライダーは無効)`);
+      } else {
+        if (!regionInfo) { toast("先にシミュレーション範囲を選んでください"); return; }
+        rainFrames.load(sc);
+        toast(`観測降雨 (空間分布) を再現中: ${entry.name} — ${sc.source}`);
+      }
       setActiveScenario(b);
-      toast(`観測降雨を再現中: ${entry.name} — 実測ハイエトグラフで駆動 (降雨スライダーは無効)`);
     };
     holder.appendChild(b);
   }
 }
+
+// ---------- observed spatial-rain frame streaming (XRAIN / MSM) ----------
+
+const rainFrames = {
+  sc: null, current: -1, loading: new Set(), cache: new Map(),
+
+  /** Start a spatial scenario: timing from the series, rates from frames. */
+  load(sc) {
+    this.stop();
+    this.sc = sc;
+    const g = sc.geo, r = regionInfo;
+    const kx = g.factor * g.width, ky = g.factor * g.height;
+    sim.startObservedRain(sc.series, [
+      1 / kx, 1 / ky,
+      (r.left || 0) / kx,
+      1 - ((r.top || 0) + r.H) / ky,
+    ]);
+    this.update();
+  },
+
+  /** Bind the frame matching the current model time (loads on demand). */
+  update() {
+    if (!this.sc || !sim.spatialRain) return;
+    const idx = clamp(Math.floor(sim.time / this.sc.frame_seconds), 0, this.sc.frames.length - 1);
+    if (idx === this.current) return;
+    const cached = this.cache.get(idx);
+    if (cached) { this.current = idx; sim.setRainTexture(cached); return; }
+    if (this.loading.has(idx)) return;
+    this.loading.add(idx);
+    const meta = this.sc.frames[idx];
+    const dir = this.sc.file.replace(/\.json$/, "");
+    loadImage(`scenarios/${dir}/${meta.file}`).then((img) => {
+      this.loading.delete(idx);
+      if (!this.sc || !sim.spatialRain) return;
+      this.cache.set(idx, sim.makeTexFromImage(img));
+      while (this.cache.size > 24) {
+        const oldest = this.cache.keys().next().value;
+        if (oldest === idx) break;
+        sim.gl.deleteTexture(this.cache.get(oldest));
+        this.cache.delete(oldest);
+      }
+      this.update();
+    }).catch(() => this.loading.delete(idx));
+  },
+
+  stop() {
+    sim.setRainTexture(null);
+    for (const t of this.cache.values()) sim.gl.deleteTexture(t);
+    this.cache.clear();
+    this.current = -1;
+    this.loading.clear();
+    this.sc = null;
+  },
+};
 
 function enterMapView() {
   sim.mapMode = true;
@@ -291,8 +385,8 @@ function screenToMap(px, py) {
 function updateLabels() {
   const canvas = $("gl");
   const dpr = canvas.width / innerWidth;
-  window.__dbg = { mapView: { ...mapView }, canvas: [canvas.width, canvas.height], dpr };
   for (const loc of LOCATIONS) {
+    if (!loc.el) continue;
     const sx = (loc.opx - mapView.x) * mapView.z + canvas.width / 2;
     const sy = canvas.height - ((loc.opy - mapView.y) * mapView.z + canvas.height / 2);
     const vis = sx > -60 && sx < canvas.width + 60 && sy > -20 && sy < canvas.height + 20;
@@ -364,7 +458,7 @@ async function startSimFromRect(r) {
     const terrain = ctx.getImageData(0, 0, r.w, r.h);
     const bldg = ctxB.getImageData(0, 0, r.w, r.h);
 
-    regionInfo = { terrain: terrain.data, bldg: bldg.data, W: r.w, H: r.h, dx: meta.z15MPerPx, photo: null };
+    regionInfo = { terrain: terrain.data, bldg: bldg.data, W: r.w, H: r.h, dx: meta.z15MPerPx, photo: null, left: r.left, top: r.top };
     if (threeView && view3dOn) threeView.setRegion(r.w, r.h, meta.z15MPerPx, regionInfo.terrain, regionInfo.bldg);
     fetchPhotoCanvas(r.left, r.top, r.w, r.h, 16).then((photo) => {
       if (photo && regionInfo.W === r.w) {
@@ -403,7 +497,7 @@ function startCitySim() {
     const ctx = comp.getContext("2d", { willReadFrequently: true });
     ctx.drawImage(dem, 0, 0);
     const terrain = ctx.getImageData(0, 0, ow, oh);
-    regionInfo = { terrain: terrain.data, bldg: null, W: ow, H: oh, dx: meta.overviewMPerPx, photo: null };
+    regionInfo = { terrain: terrain.data, bldg: null, W: ow, H: oh, dx: meta.overviewMPerPx, photo: null, left: 0, top: 0 };
     if (threeView && view3dOn) threeView.setRegion(ow, oh, meta.overviewMPerPx, regionInfo.terrain, null);
     fetchPhotoCanvas(0, 0, ow, oh, 13).then((photo) => {
       if (photo && regionInfo.W === ow) {
@@ -430,6 +524,7 @@ function startCitySim() {
 function backToMap() {
   mode = "map";
   if (view3dOn) set3d(false);
+  rainFrames.stop();
   $("north").hidden = false;
   $("simPanel").hidden = true;
   $("mapPanel").hidden = false;
@@ -642,6 +737,7 @@ function loop() {
   }
   if (!sim.W || sim.mapMode) return;
   frameNo++;
+  rainFrames.update();
   if (view3dOn && threeView && frameNo % 8 === 0) {
     threeView.updateWater(sim.readState());
   }
@@ -658,10 +754,22 @@ function loop() {
     const st = sim.computeStats();
     $("statTime").textContent = fmtTime(sim.time);
     const rateNow = sim.rainSeries ? sim.rainRateAt(Math.min(sim.time, sim.rainEnd)) : parseFloat($("rain").value);
-    $("statRain").textContent = sim.rainLeft > 0
-      ? `${rateNow.toFixed(1)} mm/h (残 ${fmtTime(sim.rainLeft)})`
+    const raining = sim.rainLeft > 0 || (sim.rainSeries && sim.time < sim.rainEnd);
+    const badge = $("rainBadge");
+    badge.textContent = raining ? "🌧 降雨中" : "☁ 降雨なし";
+    badge.className = "badge " + (raining ? "rain" : "stop");
+    $("statRain").textContent = raining
+      ? `${rateNow.toFixed(1)} mm/h (残 ${fmtTime(sim.rainLeft > 0 ? sim.rainLeft : Math.max(0, sim.rainEnd - sim.time))})`
       : "降っていません";
+    // 積算雨量: 台形積分 (観測ハイエトグラフにも対応)
+    if (sim.time < accPrevT) { accMm = 0; accPrevT = 0; accPrevRate = 0; }
+    accMm += (rateNow + accPrevRate) / 2 * (sim.time - accPrevT) / 3600;
+    accPrevT = sim.time; accPrevRate = rateNow;
+    $("statAcc").textContent = accMm.toFixed(1) + " mm";
     $("statVol").textContent = fmtVol(st.volume);
+    // 氾濫面積(>5cm)の域内比バー
+    const regionKm2 = sim.W * sim.H * sim.dx * sim.dx / 1e12;
+    $("statBar").style.width = Math.min(100, (st.a5 / 1e6) / regionKm2 * 1200).toFixed(1) + "%";
     $("statA5").textContent = (st.a5 / 1e6).toFixed(2) + " km²";
     $("statA30").textContent = (st.a30 / 1e6).toFixed(2) + " km²";
     $("statA100").textContent = (st.a100 / 1e6).toFixed(2) + " km²";

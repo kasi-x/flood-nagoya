@@ -15,6 +15,7 @@ import re
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Mapping
 from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
@@ -153,6 +154,42 @@ def scenario_path(day: date, block_no: str, out_dir: Path | None = None) -> Path
     return out / f"rain_{day:%Y%m%d}_{block_no}.json"
 
 
+def _scenario_filename(scenario: Mapping[str, object], out: Path) -> Path:
+    """Output path of a scenario document (spatial kinds carry ``file``)."""
+    file = scenario.get("file")
+    if isinstance(file, str):
+        return out / file
+    station = scenario.get("station")
+    block_no = str(station.get("block_no", "")) if isinstance(station, dict) else ""
+    return scenario_path(date.fromisoformat(str(scenario["date"])), block_no, out)
+
+
+_KIND_LABELS = {
+    "observed-rain": ("AMeDAS実測", None),
+    "xrain": ("XRAINレーダー", "名古屋"),
+    "msm": ("MSM較正", "名古屋"),
+}
+
+
+def _scenario_entry(path: Path, scenario: Mapping[str, object]) -> dict[str, str]:
+    kind = str(scenario.get("kind", "observed-rain"))
+    day = str(scenario.get("date", ""))
+    label, place = _KIND_LABELS.get(kind, (kind, None))
+    if place is not None:
+        name = f"{place} {label} {day}"
+    else:
+        station = scenario.get("station")
+        station_name = str(station.get("name", "")) if isinstance(station, dict) else ""
+        name = f"{station_name} {day}".strip()
+    peak = float(str(scenario.get("peak_mmh", 0.0) or 0.0))
+    total = float(str(scenario.get("total_mm", 0.0) or 0.0))
+    return {
+        "file": path.name,
+        "name": name,
+        "desc": f"最大 {peak:g} mm/h・合計 {total:g} mm ({label})",
+    }
+
+
 def write_index(out_dir: Path | None = None) -> Path:
     """(Re)build ``index.json`` listing every ``rain_*.json`` in the directory."""
     out = out_dir if out_dir is not None else WEB_DIR / "scenarios"
@@ -160,21 +197,16 @@ def write_index(out_dir: Path | None = None) -> Path:
     entries = []
     for path in sorted(out.glob("rain_*.json")):
         scenario = json.loads(path.read_text(encoding="utf-8"))
-        entries.append(
-            {
-                "file": path.name,
-                "name": f"{scenario['station']['name']} {scenario['date']}",
-                "desc": (f"最大 {scenario['peak_mmh']:g} mm/h・合計 {scenario['total_mm']:g} mm (AMeDAS実測)"),
-            }
-        )
+        entries.append(_scenario_entry(path, scenario))
     index = out / "index.json"
     index.write_text(json.dumps(entries, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     return index
 
 
-def write_scenario(scenario: Scenario, out_dir: Path | None = None) -> Path:
-    """Write one scenario JSON and refresh the listing index."""
-    path = scenario_path(date.fromisoformat(scenario["date"]), scenario["station"]["block_no"], out_dir)
+def write_scenario(scenario: Mapping[str, object], out_dir: Path | None = None) -> Path:
+    """Write one scenario JSON (AMeDAS or spatial) and refresh the index."""
+    out = out_dir if out_dir is not None else WEB_DIR / "scenarios"
+    path = _scenario_filename(scenario, out)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(scenario, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     write_index(path.parent)

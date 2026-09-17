@@ -11,7 +11,20 @@ INTERIM_DIR = DATA_DIR / "interim"
 PROCESSED_DIR = DATA_DIR / "processed"
 WEB_DIR = PROJECT_ROOT / "web"
 
-// placeholder
+# GSI Tiles "dem5a" (5m DEM, 平成以降測量) served as text tiles on XYZ scheme.
+GSI_LAYER = "dem5a"
+GSI_ZOOM = 15
+GSI_TILE_TXT = "https://cyberjapandata.gsi.go.jp/xyz/{layer}/{z}/{x}/{y}.txt"
+
+# z15 grid geometry at Nagoya's latitude: web-mercator pixel size shrinks
+# with cos(lat); at the study-area mid-latitude one z15 pixel spans ~3.92 m.
+Z15_M_PER_PX = 3.919
+Z15_CELL_AREA_M2 = Z15_M_PER_PX**2
+
+# Study area: Nagoya City (名古屋市, city code 23100) plus a small margin.
+# Rough city extent is lon 136.77-137.06 / lat 35.00-35.28.
+LON_MIN, LAT_MIN, LON_MAX, LAT_MAX = 136.740, 34.970, 137.090, 35.305
+
 # Web tile encoding: elevation is stored losslessly in centimetres across
 # R/G/B (v = R*65536 + G*256 + B) with A=255 for valid cells and A=0 for
 # voids. Building heights are stored in centimetres as v = R*256 + G.

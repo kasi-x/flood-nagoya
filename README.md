@@ -60,24 +60,36 @@ uv run python -m flood_nagoya serve   # http://127.0.0.1:8642/
 
 ## 実際の大雨を再現する (観測降雨シナリオ)
 
-気象庁「過去の気象データ検索」の1時間降水量 (AMeDAS) を取得し、
-実測のハイエトグラフでシミュレーションできます。
+気象庁「過去の気象データ検索」の1時間降水量 (AMeDAS) や国交省 XRAIN
+レーダー画像から、実際の大雨を再現できます。生成したシナリオは
+Webアプリの「観測降雨」欄に降雨の推移 (スパークライン) つきで並びます。
 
 ```bash
-# 例: 2026-09-08 の名古屋の記録的豪雨 (線状降水帯, 1時間97.5mm・日合計219.5mm)
+# 1. AMeDAS実測ハイエトグラフ (域内一様) — 任意の過去日
+#    例: 2026-09-08 の名古屋の記録的豪雨 (線状降水帯, 1時間97.5mm・日合計219.5mm)
 uv run python -m flood_nagoya rain-scenario --date 2026-09-08
 
-uv run python -m flood_nagoya serve   # 「観測降雨」から「名古屋 2026-09-08」を選択
+# 2. XRAINレーダー (空間分布つき・5分毎) — 川の防災情報の保持期間 内 (~8日) のみ
+uv run python -m flood_nagoya xrain-scenario --date 2026-09-16
+
+# 3. MSMモデル + AMeDAS較正 (空間分布つき・毎時) — XRAIN保持期限切れの日付用
+uv run python -m flood_nagoya msm-scenario --date 2026-09-08
+
+uv run python -m flood_nagoya serve   # 「観測降雨」からシナリオを選択
 ```
 
-- シナリオは `web/scenarios/rain_YYYYMMDD_<地点>.json` に書き出され、
-  Webアプリの「観測降雨」欄に降雨の推移 (スパークライン) つきで並びます
 - 時刻は JST。etrn表の「17時」= 16〜17時の雨なので、ハイエトグラフの
   t=16h のレートとして反映されます
-- AMeDASは地点観測のため**域内一様な雨**として与えます。地点ごとの空間分布
-  (レーダー雨量・解析雨量) を用いた再現は将来課題です
-- 計器・設置場所により市公式発表値 (例: この事案の「1時間104.5mm」) と
+- **XRAIN** (国交省 川の防災情報) は表示画像 (階級色付きPNG) を取得して
+  階級中央値の雨量強度に復元します。1枚=5分・250m相当。サーバ保持期間は
+  約8日で、それより前の日は `RetentionError` になります
+- **MSM較正** は気象庁メソモデル (5km・毎時, Open-Meteo archive API) の
+  空間パターンを、AMeDAS地点の毎時観測値に合わせて較正したものです
+  (レーダー実測ではない点に注意。シナリオJSONの `note` にも記載)
+- 計器・設置場所により市公式発表値 (例: 9/8事案の「1時間104.5mm」) と
   AMeDAS値 (97.5mm) は異なります
+- 再現時は「下水道排水能力」スライダーにも注意 (既定20mm/h)。弱い雨は
+  排水が上回りほぼ冠水しないため、状況に応じて調整してください
 
 ## データ出典・ライセンス
 
@@ -106,6 +118,9 @@ src/flood_nagoya/
   hydro.py             平地補間 (priority-flood + ε勾配) + D8流路累積
   pipeline.py          Web用タイル/オーバービュー/meta.json 生成
   amedas.py            JMA過去データ → 観測降雨シナリオ (rain-scenario)
+  spatial.py           空間降雨フレーム共通部 (PNGエンコード・ジオ参照)
+  xrain.py             国交省XRAIN画像 → 空間分布降雨 (xrain-scenario)
+  msm.py               JMA MSM+AMeDAS較正 → 空間分布降雨 (msm-scenario)
   server.py            静的配信 (no-cache)
 web/
   sim.js               WebGL2 浅水方程式エンジン

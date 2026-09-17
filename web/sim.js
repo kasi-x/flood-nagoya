@@ -23,6 +23,9 @@ precision highp sampler2D;
 uniform sampler2D uState;
 uniform sampler2D uTerrain;
 uniform sampler2D uBldg;
+uniform sampler2D uRainTex;   // observed spatial rain; count = 0.5 mm/h
+uniform vec4 uRainXForm;      // frag px -> rain uv: uv = frag*xy + zw
+uniform float uRainTexOn;
 uniform float uDt, uDx, uG, uManning, uRain, uDrain, uInfil, uBldgOn;
 out vec4 oState;
 
@@ -78,7 +81,12 @@ void main(){
 
   float h = s.x;
   float loss = min(h, (uDrain + uInfil) * uDt);
-  float h1 = h + uDt/uDx * (inW - qE + inN - qS) - loss + uRain * uDt;
+  float rainMS = uRain;
+  if (uRainTexOn > 0.5) {
+    float mmh = texture(uRainTex, gl_FragCoord.xy * uRainXForm.xy + uRainXForm.zw).r * 127.5;
+    rainMS = mmh / 1000.0 / 3600.0;
+  }
+  float h1 = h + uDt/uDx * (inW - qE + inN - qS) - loss + rainMS * uDt;
   h1 = max(h1, 0.0);
   if(wall){ h1 = 0.0; qE = 0.0; qS = 0.0; }
   oState = vec4(h1, qE, qS, max(s.w, h1));
@@ -271,6 +279,9 @@ export class FloodSim {
     this.rainLeft = 0;                  // seconds of rain remaining
     this.rainSeries = null;             // observed hyetograph [[t_sec, mm_h], ...]
     this.rainEnd = 0;                   // series end time (seconds)
+    this.spatialRain = false;           // drive rain from uRainTex frames
+    this.rainTex = null;                // current observed-rain frame texture
+    this.rainXForm = [1, 1, 0, 0];      // frag px -> frame uv
     this.paused = true;
     this.volume0 = 0;
     this.stats = null;
@@ -329,6 +340,16 @@ export class FloodSim {
     this.paused = false;
   }
 
+  startScenario(rainMMh, durationMin) {
+    this.params.rain = rainMMh;
+    this.rainSeries = null;
+    this.spatialRain = false;
+    this.durationMin = durationMin;
+    this.rainLeft = durationMin * 60;
+    this.time = 0;
+    this.paused = false;
+  }
+
   /** Observed rainfall: piecewise-linear hyetograph [[t_sec, mm_h], ...]. */
   startHyetograph(series) {
     this.rainSeries = series;
@@ -337,6 +358,20 @@ export class FloodSim {
     this.time = 0;
     this.paused = false;
   }
+
+  /**
+   * Observed spatial rain: the series (domain mean) drives timing/stats,
+   * while actual rates come from frame textures bound via setRainTexture.
+   * xform maps frag px -> frame uv: uv = frag * (x, y) + (z, w).
+   */
+  startObservedRain(series, xform) {
+    this.startHyetograph(series);
+    this.spatialRain = true;
+    if (xform) this.rainXForm = xform;
+  }
+
+  /** Bind (or unbind with null) the active observed-rain frame texture. */
+  setRainTexture(tex) { this.rainTex = tex; }
 
   /** Rain intensity at model time t (mm/h); constant rate when no series. */
   rainRateAt(t) {
@@ -384,6 +419,9 @@ export class FloodSim {
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, src);   gl.uniform1i(u.uState, 0);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.terrainTex); gl.uniform1i(u.uTerrain, 1);
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.bldgTex);    gl.uniform1i(u.uBldg, 2);
+    gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, this.rainTex);   gl.uniform1i(u.uRainTex, 3);
+    gl.uniform1f(u.uRainTexOn, this.spatialRain && this.rainTex ? 1 : 0);
+    gl.uniform4f(u.uRainXForm, this.rainXForm[0], this.rainXForm[1], this.rainXForm[2], this.rainXForm[3]);
     const p = this.params;
     const rainOn = this.rainLeft > 0 && !this.paused;
     const rainMMh = this.rainSeries ? this.rainRateAt(this.time) : p.rain;
@@ -482,25 +520,6 @@ export class FloodSim {
       cells,
     };
     return this.stats;
-  }
-
-  /** Rain volume that has fallen so far (m3). */
-  rainVolume() {
-    let mmTotal;
-    if (this.rainSeries) {
-      const s = this.rainSeries;
-      const t = Math.min(this.time, this.rainEnd);
-      mmTotal = 0;
-      for (let i = 1; i < s.length; i++) {
-        const t1 = Math.min(s[i][0], t);
-        if (t1 <= s[i - 1][0]) break;
-        mmTotal += (s[i - 1][1] + s[i][1]) / 2 * (t1 - s[i - 1][0]) / 3600;
-        if (s[i][0] >= t) break;
-      }
-    } else {
-      mmTotal = this.params.rain * Math.min(this.time, (this.durationMin || 0) * 60) / 3600;
-    }
-    return mmTotal / 1000 * this.W * this.H * this.dx * this.dx;
   }
 
   dispose() {
