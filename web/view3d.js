@@ -6,7 +6,7 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 
-const EXAG = 1.4; // vertical exaggeration applied consistently to all Y
+const EXAG = 1.0; // vertical exaggeration applied consistently to all Y
 
 const TERRAIN_VERT = /* glsl */ `
 uniform sampler2D uTerr;

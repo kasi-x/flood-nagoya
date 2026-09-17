@@ -1,5 +1,5 @@
 // 名古屋市 雨水流出エミュレーター — map view, region selection, UI wiring.
-import { FloodSim, MODE_TERRAIN, MODE_DEPTH, MODE_SPEED, MODE_MAXDEPTH } from "./sim.js?v=19m";
+import { FloodSim, MODE_TERRAIN, MODE_DEPTH, MODE_SPEED, MODE_MAXDEPTH } from "./sim.js?v=19p";
 import { ThreeView } from "./view3d.js?v=18h";
 
 const Z15 = 15;
@@ -206,15 +206,21 @@ function startDefaultScene() {
   startSimFromRect(r).then(() => {
     if (!view3dOn) set3d(true);
     if (location.search.includes("noff")) { sim.paused = true; return; }  // 検証用
-    // 見栄えのため30分だけ早送りして水を溜める (フレーム分割でGPUに負担をかけない)
-    const ff = () => {
-      if (sim.time >= 1800) return;
-      for (let i = 0; i < 400; i++) sim.step(0.05);  // 20秒/フレーム
+    const refresh = () => {
       if (threeView) {
         threeView.updateWater(sim.readState());
         threeView.controls.update();
         threeView.renderer.render(threeView.scene, threeView.camera);
       }
+    };
+    // 最初の10分は同期で進めて開いた瞬間に水を見せる
+    for (let i = 0; i < 12000; i++) sim.step(0.05);
+    refresh();
+    // 残り20分はフレーム分割でGPUに負担をかけない
+    const ff = () => {
+      if (sim.time >= 1800) return;
+      for (let i = 0; i < 400; i++) sim.step(0.05);  // 20秒/フレーム
+      refresh();
       requestAnimationFrame(ff);
     };
     requestAnimationFrame(ff);
@@ -643,6 +649,14 @@ function wireUI() {
   $("backBtn").onclick = backToMap;
   $("cityBtn").onclick = startCitySim;
   $("btn3d").onclick = () => set3d(!view3dOn);
+  $("shotBtn").onclick = () => {
+    const cv = view3dOn ? $("gl3d") : $("gl");
+    const a = document.createElement("a");
+    a.download = `flood-nagoya-${new Date().toISOString().replace(/[:.]/g, "-")}.png`;
+    a.href = cv.toDataURL("image/png");
+    a.click();
+    toast("スクリーンショットを保存しました");
+  };
 }
 
 function set3d(on) {

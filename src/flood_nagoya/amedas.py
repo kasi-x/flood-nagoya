@@ -168,6 +168,7 @@ _KIND_LABELS = {
     "observed-rain": ("AMeDAS実測", None),
     "xrain": ("XRAINレーダー", "名古屋"),
     "msm": ("MSM較正", "名古屋"),
+    "msm-afternoon": ("MSM較正 11時〜", "名古屋"),
 }
 
 
