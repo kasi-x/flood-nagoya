@@ -1,0 +1,11 @@
+# Shared pyproject-fmt settings for this project.
+#
+# pyproject-fmt reads this file (searching from the pyproject.toml directory
+# upward) and applies it to pyproject.toml. The template writes pyproject.toml
+# with explicit [tool.*] section headers, so keep the long table format
+# instead of collapsing to dotted keys; keep full version numbers; and keep
+# the authored classifier list instead of regenerating it from
+# requires-python.
+table_format = "long"
+keep_full_version = true
+generate_python_version_classifiers = false

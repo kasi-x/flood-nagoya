@@ -1,0 +1,14 @@
+project:
+  execute-dir: project
+
+bibliography: references/references.bib
+csl: references/chicago-author-date.csl
+
+# quartodoc generates API reference pages from flood_nagoya docstrings.
+# Run `quarto add machow/quartodoc` once, then `quartodoc build --config _quarto.yml`.
+quartodoc:
+  package: flood_nagoya
+  dir: docs/reference
+  title: API Reference
+  renderer:
+    style: pkg

@@ -1,0 +1,161 @@
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  hygiene:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # gitleaks scans the full history
+          fetch-depth: 0
+
+      - name: No merge-conflict markers, no oversized files
+        run: |
+          set -euo pipefail
+          if grep -rIn '^<<<<<<< ' --exclude-dir=.git .; then
+            echo "::error::merge-conflict markers found (see above)"
+            exit 1
+          fi
+          big=$(git ls-files -z | xargs -0 du -m 2>/dev/null | awk '$1 > 10 {print $2}' | grep -Ev '(^|/)(uv|pixi|poetry)\.lock$' || true)
+          if [ -n "$big" ]; then
+            echo "::error::file over 10MB committed: $big"
+            exit 1
+          fi
+
+      - name: Text files end with exactly one newline
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib
+          import subprocess
+          import sys
+
+          skip = ("uv.lock", "pixi.lock", "poetry.lock", "pyproject.toml")
+          files = subprocess.check_output(
+              ["git", "ls-files", "-z"], text=True
+          ).split("\0")
+          bad = []
+          for name in files:
+              if not name or name.endswith(skip) or name.startswith(".github/pages"):
+                  continue
+              path = pathlib.Path(name)
+              if not path.is_file():
+                  continue  # directory symlinks and other non-regular entries
+              if name.endswith(".jinja"):
+                  continue  # template partials end without a newline on purpose
+              data = path.read_bytes()
+              if b"\0" in data[:8192]:
+                  continue  # binary
+              if data and not data.endswith(b"\n"):
+                  bad.append(name)
+          if bad:
+              print("missing trailing newline:\n" + "\n".join(bad))
+              sys.exit(1)
+          PY
+
+      - name: YAML files parse
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib
+          import sys
+          import yaml
+
+          skip_dirs = {".git", ".venv", "site", "build", "dist", "node_modules"}
+          bad = []
+          for p in pathlib.Path(".").rglob("*"):
+              if (
+                  not p.is_file()
+                  or p.suffix not in {".yml", ".yaml"}
+                  or p.name == "copier.yml"  # uses !include tags
+                  or skip_dirs & set(p.parts)
+              ):
+                  continue
+              text = p.read_text(encoding="utf-8")
+              if "{%" in text:  # unrendered Jinja template
+                  continue
+              try:
+                  list(yaml.safe_load_all(text))
+              except yaml.YAMLError as exc:
+                  bad.append(f"{p}: {exc}")
+          if bad:
+              print("invalid YAML:\n" + "\n".join(bad))
+              sys.exit(1)
+          PY
+
+      - name: Scan for secrets (gitleaks)
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Lint GitHub Actions workflows (actionlint)
+        uses: docker://rhysd/actionlint@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667 # latest
+
+      # uvx is not preinstalled on runners: the conventional-commits and
+      # notebook checks run their tools through it. enable-cache: true (not
+      # the "auto" default, which disables caching on tag pushes) also
+      # caches the uv wheel cache, so cold uvx tool envs are built from
+      # cached wheels instead of re-downloading.
+      - name: Install uv
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          enable-cache: true
+
+      - name: Commit messages are conventional
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          check_msg() {
+            printf '%s\n' "$1" > /tmp/commit-msg.txt
+            uvx conventional-pre-commit==4.4.0 /tmp/commit-msg.txt
+          }
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            check_msg "$(gh pr view "$PR_NUMBER" --json title --jq .title)"
+            for sha in $(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/commits" --jq '.[].sha'); do
+              msg=$(gh api "repos/$GITHUB_REPOSITORY/commits/$sha" --jq .commit.message)
+              case $msg in "Merge "*) continue ;; esac
+              check_msg "$msg"
+            done
+          else
+            msg=$(git log -1 --pretty=%B)
+            case $msg in "Merge "*) exit 0 ;; esac
+            check_msg "$msg"
+          fi
+
+      - name: Jupyter notebooks are stripped of outputs
+        if: hashFiles('**/*.ipynb') != ''
+        run: |
+          set -euo pipefail
+          status=0
+          tmp=$(mktemp)
+          while IFS= read -r -d '' f; do
+            uvx nbstripout==0.8.1 < "$f" > "$tmp"
+            if ! diff -q "$tmp" "$f" > /dev/null; then
+              echo "notebook is not stripped of outputs: $f"
+              status=1
+            fi
+          done < <(git ls-files -z '*.ipynb')
+          rm -f "$tmp"
+          exit "$status"
+
+      - name: REUSE compliance
+        if: hashFiles('REUSE.toml') != ''
+        uses: fsfe/reuse-action@676e2d560c9a403aa252096d99fcab3e1132b0f5 # v6.0.0
+
+      - name: Validate CITATION.cff
+        if: hashFiles('CITATION.cff') != ''
+        # cffconvert-github-action@v1 is broken upstream (its entrypoint
+        # script, checks.sh, is missing from the tag), so run the CLI
+        # directly with a pinned version.
+        run: uvx cffconvert==2.0.0 --validate

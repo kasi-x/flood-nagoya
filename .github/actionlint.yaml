@@ -1,0 +1,5 @@
+# Configuration for actionlint (GitHub Actions linter), run in CI via the hygiene workflow.
+# See https://github.com/rhysd/actionlint for the full reference.
+
+self-hosted-runner:
+  labels: []

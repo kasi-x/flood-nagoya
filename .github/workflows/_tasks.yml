@@ -1,0 +1,93 @@
+on:
+  workflow_call:
+    inputs:
+      task_runner:
+        type: string
+        description: Which task runner drives the tasks (task, just, poe, make, invoke, duty, pixi)
+        required: true
+      task:
+        type: string
+        description: Task name(s) to run, comma or space separated
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: "ubuntu-latest"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Need this to get version number from last tag
+          fetch-depth: 0
+
+      - name: Install uv
+        if: hashFiles('pixi.lock', 'poetry.lock') == ''
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+
+      - name: Install pixi
+        if: hashFiles('pixi.lock') != ''
+        uses: prefix-dev/setup-pixi@f00437f565399d418b0acc85936d12c1fb668347 # v0.10.1
+
+      - name: Install poetry
+        if: hashFiles('poetry.lock') != ''
+        uses: snok/install-poetry@a783c322200f0519c7926aa6faa857c4e23e9263 # v1
+
+      - name: Install Task
+        if: inputs.task_runner == 'task'
+        uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2.0.0
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Just
+        if: inputs.task_runner == 'just'
+        uses: extractions/setup-just@dd310ad5a97d8e7b41793f8ef055398d51ad4de6 # v2
+        with:
+          # zizmor unpinned-tools: the just CLI version is pinned and
+          # tracked by the weekly check-upstream drift report
+          just-version: "1.58.0"
+
+      - name: Install MicroPython stubs
+        if: hashFiles('requirements-dev.txt') != '' && hashFiles('pixi.lock', 'poetry.lock') == ''
+        run: uv run --locked pip install -r requirements-dev.txt --target typings
+
+      - name: Run tasks
+        env:
+          TASK_RUNNER: ${{ inputs.task_runner }}
+          TASKS: ${{ inputs.task }}
+        run: |
+          set -eu
+          for t in $(echo "$TASKS" | tr ',' ' '); do
+            case "$TASK_RUNNER" in
+              task) task "$t" ;;
+              just) just "$t" ;;
+              make) make "$t" ;;
+              poe)
+                if [ -f poetry.lock ]; then
+                  poetry run poe "$t"
+                else
+                  uv run --locked poe "$t"
+                fi
+                ;;
+              invoke)
+                if [ -f poetry.lock ]; then
+                  poetry run invoke "$t"
+                else
+                  uv run --locked invoke "$t"
+                fi
+                ;;
+              duty)
+                if [ -f poetry.lock ]; then
+                  poetry run duty "$t"
+                else
+                  uv run --locked duty "$t"
+                fi
+                ;;
+              pixi) pixi run -e dev --locked "$t" ;;
+              *) echo "Unknown task runner: $TASK_RUNNER" >&2; exit 1 ;;
+            esac
+          done

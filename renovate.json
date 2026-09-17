@@ -1,0 +1,90 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":configMigration",
+    ":enableVulnerabilityAlerts",
+    "helpers:pinGitHubActionDigests"
+  ],
+  "vulnerabilityAlerts": {
+    "automerge": true
+  },
+  "lockFileMaintenance": {
+    "description": "Keep the uv.lock up to date, merging if tests pass",
+    "enabled": true,
+    "automerge": true
+  },
+  "packageRules": [
+    {
+      "description": "Disable python version as that is managed by python-copier-template",
+      "matchManagers": [
+        "pyenv"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Core CI actions managed by python-copier-template (checkout, toolchain setup, lint/test helpers)",
+      "matchPackageNames": [
+        "actions/checkout",
+        "astral-sh/setup-uv",
+        "prefix-dev/setup-pixi",
+        "snok/install-poetry",
+        "actions/upload-artifact",
+        "actions/download-artifact",
+        "arduino/setup-task",
+        "extractions/setup-just",
+        "zizmorcore/zizmor-action"
+      ],
+      "matchManagers": [
+        "github-actions"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Hygiene actions managed by python-copier-template (secrets, workflow linting, REUSE, CITATION.cff)",
+      "matchPackageNames": [
+        "gitleaks/gitleaks-action",
+        "rhysd/actionlint",
+        "fsfe/reuse-action",
+        "actions/cache"
+      ],
+      "matchManagers": [
+        "github-actions"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Release actions managed by python-copier-template (release notes, coverage, changelog)",
+      "matchPackageNames": [
+        "softprops/action-gh-release",
+        "orhun/git-cliff-action",
+        "codecov/codecov-action"
+      ],
+      "matchManagers": [
+        "github-actions"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Docs deploy action managed by python-copier-template",
+      "matchPackageNames": [
+        "peaceiris/actions-gh-pages"
+      ],
+      "matchManagers": [
+        "github-actions"
+      ],
+      "enabled": false
+    },
+    {
+      "description": "Disable Dockerfile base images that are managed by python-copier-template",
+      "matchManagers": [
+        "dockerfile"
+      ],
+      "matchDepNames": [
+        "ubuntu",
+        "ghcr.io/diamondlightsource/ubuntu-devcontainer"
+      ],
+      "enabled": false
+    }
+  ]
+}

@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>名古屋市 雨水流出エミュレーター — GPU浅水方程式 × PLATEAU</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="gl3d" hidden></canvas>
+<div id="labels"></div>
+<div id="selbox" hidden></div>
+
+<script type="importmap">
+{ "imports": { "three": "./lib/three.module.min.js", "three/addons/": "./lib/addons/" } }
+</script>
+
+<header>
+  <div id="title">
+    <strong>名古屋市 雨水流出エミュレーター</strong>
+    <span>国土地理院 5m DEM × PLATEAU建物 × GPU浅水方程式</span>
+  </div>
+</header>
+
+<aside id="mapPanel" class="panel">
+  <h2>つかいかた</h2>
+  <p class="hint">
+    地図上を<strong>ドラッグ</strong>でシミュレーション範囲を選択 (最大約13×12km)。<br>
+    <strong>ホイール</strong>でズーム、<strong>Space+ドラッグ</strong>で地図をパン。
+  </p>
+  <button id="cityBtn">🏙 名古屋市全域で実行 (広域モード)</button>
+  <h2>場所から選ぶ</h2>
+  <div id="locations"></div>
+  <h2>このエミュレーターについて</h2>
+  <p class="hint">
+    降雨が地表・街を流れる様子を、実標高 (国土地理院 数値標高モデル5m) と
+    PLATEAU建物 (約74万棟を流路障害物化) を用いたGPU浅水方程式で計算します。
+    下水道の排水は「排水能力」として近似しており、行政のハザードマップではありません。
+  </p>
+  <p class="hint src">
+    出典: 国土地理院 dem5a / Project PLATEAU (2022 名古屋市)
+  </p>
+</aside>
+
+<aside id="simPanel" class="panel" hidden>
+  <div class="row">
+    <button id="backBtn" class="wide">← 地図へ戻る (Esc)</button>
+  </div>
+  <h2>降雨シナリオ</h2>
+  <div id="scenarios"></div>
+  <h2>条件</h2>
+  <div class="ctl"><label>降雨強度 <output id="rainVal"></output></label>
+    <input type="range" id="rain" min="0" max="200" step="5" value="80"></div>
+  <div class="ctl"><label>降雨継続時間 <output id="durationVal"></output></label>
+    <input type="range" id="duration" min="10" max="720" step="10" value="120"></div>
+  <div class="ctl"><label>下水道排水能力 <output id="drainVal"></output></label>
+    <input type="range" id="drain" min="0" max="60" step="1" value="20"></div>
+  <div class="ctl"><label>地盤浸透 <output id="infilVal"></output></label>
+    <input type="range" id="infil" min="0" max="30" step="1" value="1"></div>
+  <div class="ctl"><label>粗度係数 Manning n <output id="manningVal"></output></label>
+    <input type="range" id="manning" min="0.015" max="0.08" step="0.005" value="0.03"></div>
+  <div class="ctl"><label>計算速度 <output id="speedVal"></output></label>
+    <input type="range" id="speed" min="1" max="120" step="1" value="30"></div>
+  <div class="ctl">
+    <label class="chk"><input type="checkbox" id="bldgToggle" checked> PLATEAU建物を障害物として扱う</label>
+  </div>
+  <div class="ctl disp">
+    <label class="chk"><input type="radio" name="disp" value="depth" checked> 水深</label>
+    <label class="chk"><input type="radio" name="disp" value="speed"> 流速</label>
+    <label class="chk"><input type="radio" name="disp" value="max"> 最大浸水深</label>
+  </div>
+  <div class="row">
+    <button id="pauseBtn" class="wide">⏸ 一時停止</button>
+    <button id="resetBtn" class="wide">↺ リセット</button>
+  </div>
+  <div class="row">
+    <button id="btn3d" class="wide">🏔 3D表示に切り替え</button>
+  </div>
+
+  <h2>計算結果</h2>
+  <table id="stats">
+    <tr><th>経過時間</th><td id="statTime">00:00</td></tr>
+    <tr><th>降雨</th><td id="statRain">—</td></tr>
+    <tr><th>貯留量</th><td id="statVol">—</td></tr>
+    <tr><th>氾濫面積 &gt;5cm</th><td id="statA5">—</td></tr>
+    <tr><th>氾濫面積 &gt;30cm</th><td id="statA30">—</td></tr>
+    <tr><th>氾濫面積 &gt;1m</th><td id="statA100">—</td></tr>
+    <tr><th>描画 fps</th><td id="statFps">—</td></tr>
+  </table>
+
+  <h2>水深の凡例</h2>
+  <div id="legend"></div>
+  <div class="legend-ticks"><span>5cm</span><span>30cm</span><span>1m</span><span>3m+</span></div>
+  <p class="hint">水深0.05m未満は表示しません。本結果は下水道網を陽に解かない
+  簡易アンサンブルであり、厳密な浸水予測ではありません。</p>
+</aside>
+
+<div id="toast" hidden></div>
+<script type="module" src="app.js?v=18g"></script>
+</body>
+</html>

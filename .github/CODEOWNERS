@@ -1,0 +1,7 @@
+# Owners are checked by GitHub when a pull request modifies files.
+# Replace the example owner with your username or team, e.g.
+#   *             @kasi-x/core-team
+#   /src/         @kasi-x/core-team
+#   /.github/     @kasi-x/ci-team
+
+* @kasi-x

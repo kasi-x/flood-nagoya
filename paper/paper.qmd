@@ -1,0 +1,123 @@
+---
+title: "flood-nagoya"
+format:
+  arxiv-pdf:
+    keep-tex: true
+    linenumbers: false
+    doublespacing: false
+    runninghead: ""
+    fig-pos: H
+    include-in-header:
+      - text: |
+          \usepackage[utf8]{inputenc}
+          \usepackage{fontspec}
+          \usepackage{booktabs}
+          \usepackage{makecell}
+          \usepackage{threeparttable}
+          \usepackage{amsfonts}
+          \usepackage{amssymb}
+          \usepackage{amsmath}
+          \usepackage{amsthm}
+  arxiv-html: default
+author:
+  - name: "kasi-x"
+    affiliations:
+      - name: "kasi-x"
+    orcid: ""
+abstract: |
+  Abstract goes here.
+keywords:
+  - keyword1
+link-citations: true
+execute:
+  echo: false
+jupyter: python3
+---
+
+{{< pagebreak >}}
+
+# Introduction
+
+```{python}
+# People won't see this code
+from pathlib import Path
+import tomli
+import pandas as pd
+
+seconds_in_an_hour = 60*60
+```
+
+Time is our most valuable and exhaustable resource: once the `{python} seconds_in_an_hour` seconds of any hour have passed, we may never go back and re-live them (much as we may sometimes wish to.)
+
+The closest paper to ours is @example2020key ... Multiple citations work too [@example2020key;@example2021key] and they can be in line or not [@example2020key].
+
+# Data
+
+To include latex tables, just enclose `python` in the below with curly brackets.
+
+```python
+#| label: tbl-one
+#| tbl-cap: Summary statistics
+#| output: asis
+#| echo: false
+#| tbl-pos: H
+
+with open(Path("outputs/table_one.tex"), "r") as f:
+    tab_one = f.read()
+
+print(tab_one)
+```
+
+# Theoretical model
+
+Here we outline a theoretical model to show how mathematics works.
+
+We assume weak separability between consumption and leisure so that the utility a person gets can be expressed as $U(c, \tilde{v}(h_1, \ldots, h_I; \vec{\theta}))$. $\tilde{v}$ is an aggregator over leisure activities and $\vec{\theta} = \{\theta_1, \ldots, \theta_I \}$ is a vector of **quality levels** of the leisure activities.
+
+We assume that leisure is aggregated with the following functional form
+$$
+\tilde{v}(\vec{h}; \vec{\theta}) = \displaystyle\sum_{i=0}^{I} \frac{\left(\theta_i h_i\right)^{1-\frac{1}{\eta_i}}}{1-\frac{1}{\eta_i}}
+$$
+
+
+## Seasonality and holidays {#sec-seasonal}
+
+Uncomment the below to get a figure included.
+
+<!-- ![Monthly and weekly seasonal effects as estimated in the preferred specification.](../outputs/figure_name.pdf){#fig-seasonality} -->
+
+To give a sense of the strength of these seasonal influences, @fig-seasonality shows the day-of-the-week and month-of-the-year effects.
+
+## News {#sec-news}
+
+It is easy to refer back to other sections (see @sec-seasonal). 
+{{< pagebreak >}}
+
+# Appendix {.unnumbered}
+
+## Software {.unnumbered}
+
+This paper was prepared using Quarto and Python. The packages used are shown in @tbl-pkg.
+
+```{python}
+#| label: tbl-pkg
+#| tbl-cap: Packages used in this paper.
+#| output: asis
+#| echo: false
+#| tbl-pos: h
+
+
+with open(Path("pyproject.toml"), "rb") as f:
+    packages_toml = tomli.load(f)
+
+pkg_df = pd.DataFrame(packages_toml["project"]["dependencies"])
+pkg_df = pkg_df[0].str.split(">=", expand=True)
+pkg_df = pkg_df.rename(columns={0: "Python package name", 1: "Version"})
+pkg_df = pkg_df.set_index("Python package name")
+pkg_df
+```
+
+# References {.unnumbered}
+
+::: {#refs}
+:::

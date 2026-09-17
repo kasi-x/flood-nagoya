@@ -1,0 +1,148 @@
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        type: string
+        description: The version of python to install, default is from .python-version file
+        default: ""
+      runs-on:
+        type: string
+        description: The runner to run this job on
+        required: true
+      task_runner:
+        type: string
+        description: Which task runner drives the test task (task, just, poe, make, pixi)
+        required: true
+      task:
+        type: string
+        description: The test task to run (the PR/push caller passes the fast tier, the nightly caller the heavy tier)
+        default: test
+      timeout-minutes:
+        type: number
+        description: Job timeout in minutes (the heavy tier builds venvs, so it needs more than the fast one)
+        default: 60
+      postgres-host:
+        type: string
+        description: Host of the postgres service container, when the project needs a database
+        default: ""
+      postgres-port:
+        type: string
+        description: Port of the postgres service container
+        default: "5432"
+      postgres-user:
+        type: string
+        description: Username for the postgres service container
+        default: ""
+      postgres-password:
+        type: string
+        description: Password for the postgres service container
+        default: ""
+      postgres-db:
+        type: string
+        description: Database name for the postgres service container
+        default: ""
+
+permissions:
+  contents: read
+
+env:
+  # https://github.com/pytest-dev/pytest/issues/2042
+  PY_IGNORE_IMPORTMISMATCH: "1"
+  UV_PYTHON: ${{ inputs.python-version }}
+
+jobs:
+  run:
+    runs-on: ${{ inputs.runs-on }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Need this to get version number from last tag
+          fetch-depth: 0
+
+      - name: Restore cached .venv
+        # uv-only projects (the pixi/poetry installs below are skipped under
+        # the same condition). Keyed on the lockfile + pinned python so a
+        # dependency or interpreter change rebuilds from scratch;
+        # restore-keys falls back to the previous venv and `uv run --locked`
+        # re-syncs just the delta (cheap thanks to setup-uv's own cache).
+        if: hashFiles('pixi.lock', 'poetry.lock') == ''
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-${{ inputs.python-version || 'default' }}-${{ hashFiles('uv.lock', '.python-version') }}
+          restore-keys: venv-${{ runner.os }}-${{ inputs.python-version || 'default' }}-
+
+      - name: Install uv
+        if: hashFiles('pixi.lock', 'poetry.lock') == ''
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          # Explicit true (not the "auto" default) so tag-push runs also
+          # cache: "auto" disables caching on tag pushes.
+          enable-cache: true
+
+      - name: Install pixi
+        if: hashFiles('pixi.lock') != ''
+        uses: prefix-dev/setup-pixi@f00437f565399d418b0acc85936d12c1fb668347 # v0.10.1
+
+      - name: Install poetry
+        if: hashFiles('poetry.lock') != ''
+        uses: snok/install-poetry@a783c322200f0519c7926aa6faa857c4e23e9263 # v1
+
+      - name: Install Task
+        if: inputs.task_runner == 'task'
+        uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2.0.0
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Just
+        if: inputs.task_runner == 'just'
+        uses: extractions/setup-just@dd310ad5a97d8e7b41793f8ef055398d51ad4de6 # v2
+        with:
+          # zizmor unpinned-tools: the just CLI version is pinned and
+          # tracked by the weekly check-upstream drift report
+          just-version: "1.58.0"
+
+      - name: Run tests
+        env:
+          TASK_RUNNER: ${{ inputs.task_runner }}
+          # The test task to run: `test` by default, `test-fast` / `test-heavy`
+          # from ci.yml so the PR/push run skips the venv tier and the nightly
+          # run exercises exactly it.
+          TEST_TASK: ${{ inputs.task }}
+          # Postgres service container connection info (empty unless the
+          # project opted in via ci.yml's postgres service).
+          POSTGRES_HOST: ${{ inputs.postgres-host }}
+          POSTGRES_PORT: ${{ inputs.postgres-port }}
+          POSTGRES_USER: ${{ inputs.postgres-user }}
+          POSTGRES_PASSWORD: ${{ inputs.postgres-password }}
+          POSTGRES_DB: ${{ inputs.postgres-db }}
+          DATABASE_URL: ${{ inputs.postgres-host != '' && format('postgresql://{0}:{1}@{2}:{3}/{4}', inputs.postgres-user, inputs.postgres-password, inputs.postgres-host, inputs.postgres-port, inputs.postgres-db) || '' }}
+        run: |
+          set -eu
+          case "$TASK_RUNNER" in
+            task) task "$TEST_TASK" ;;
+            just) just "$TEST_TASK" ;;
+            make) make "$TEST_TASK" ;;
+            poe)
+              if [ -f poetry.lock ]; then
+                poetry run poe "$TEST_TASK"
+              else
+                uv run --locked poe "$TEST_TASK"
+              fi
+              ;;
+            pixi) pixi run -e dev --locked "$TEST_TASK" ;;
+            *) echo "Unknown task runner: $TASK_RUNNER" >&2; exit 1 ;;
+          esac
+
+      - name: Upload coverage to Codecov
+        # Pushes to main only: PR uploads are noise (and fork PRs cannot
+        # upload without the token anyway).
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7
+        with:
+          name: ${{ inputs.python-version }}/${{ inputs.runs-on }}
+          files: cov.xml

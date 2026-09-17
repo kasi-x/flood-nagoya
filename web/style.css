@@ -1,0 +1,103 @@
+:root {
+  --bg: #0e1116;
+  --panel: rgba(14, 18, 24, 0.92);
+  --line: #2a3340;
+  --text: #dfe6ee;
+  --dim: #8fa0b3;
+  --accent: #4aa3e0;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; }
+body {
+  font-family: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  background: var(--bg); color: var(--text); font-size: 13px;
+}
+#gl { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; touch-action: none; cursor: crosshair; }
+#gl3d { position: fixed; inset: 0; width: 100vw; height: 100vh; display: block; }
+
+header {
+  position: fixed; top: 12px; left: 14px; z-index: 5; pointer-events: none;
+}
+#title {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+  padding: 8px 14px; display: flex; flex-direction: column; gap: 2px;
+  backdrop-filter: blur(6px);
+}
+#title strong { font-size: 15px; }
+#title span { color: var(--dim); font-size: 11px; }
+
+.panel {
+  position: fixed; top: 74px; left: 14px; bottom: 14px; width: 308px; z-index: 4;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  padding: 14px 16px; overflow-y: auto; backdrop-filter: blur(6px);
+}
+.panel h2 {
+  font-size: 12px; color: var(--accent); margin: 16px 0 6px;
+  text-transform: none; letter-spacing: 0.04em;
+}
+.panel h2:first-child { margin-top: 0; }
+.hint { color: var(--dim); line-height: 1.65; margin: 6px 0; font-size: 12px; }
+.hint.src { font-size: 10.5px; }
+button {
+  background: #1b2330; color: var(--text); border: 1px solid var(--line);
+  border-radius: 8px; padding: 7px 10px; cursor: pointer; font-size: 12.5px;
+  transition: background 0.15s, border-color 0.15s;
+}
+button:hover { background: #24303f; border-color: #3d4d61; }
+button.wide { flex: 1; }
+.row { display: flex; gap: 8px; margin: 8px 0; }
+
+#locations { display: flex; flex-wrap: wrap; gap: 6px; }
+#locations button { padding: 4px 9px; font-size: 11.5px; border-radius: 14px; }
+
+#scenarios { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+button.scenario { display: flex; flex-direction: column; gap: 2px; padding: 8px; }
+button.scenario b { font-size: 12.5px; }
+button.scenario span { color: var(--dim); font-size: 10.5px; }
+button.scenario.active { border-color: var(--accent); }
+
+.ctl { margin: 9px 0; }
+.ctl label { display: flex; justify-content: space-between; color: var(--dim); font-size: 12px; margin-bottom: 3px; }
+.ctl output { color: var(--text); font-variant-numeric: tabular-nums; }
+.ctl.disp { display: flex; gap: 10px; }
+input[type="range"] { width: 100%; accent-color: var(--accent); }
+label.chk { display: flex; gap: 6px; align-items: center; color: var(--text); cursor: pointer; }
+
+#stats { width: 100%; border-collapse: collapse; }
+#stats th { text-align: left; color: var(--dim); font-weight: normal; padding: 3px 0; width: 55%; }
+#stats td { text-align: right; font-variant-numeric: tabular-nums; }
+
+#legend {
+  height: 14px; border-radius: 7px; margin: 4px 0 6px;
+  background: linear-gradient(to right,
+    #d9eeff 0%, #73baed 10%, #3d85db 25%, #2152b8 45%,
+    #3d2b8c 70%, #1a0f45 100%);
+}
+.legend-ticks { display: flex; justify-content: space-between; color: var(--dim); font-size: 10.5px; }
+
+.label {
+  position: fixed; z-index: 3; transform: translate(-50%, -130%);
+  color: #eef4fb; font-size: 11px; text-shadow: 0 1px 3px #000, 0 0 6px #000;
+  pointer-events: none; white-space: nowrap;
+}
+.label::after {
+  content: ""; position: absolute; left: 50%; bottom: -9px; transform: translateX(-50%);
+  width: 5px; height: 5px; border-radius: 50%; background: #fff;
+  box-shadow: 0 0 5px #000;
+}
+
+#selbox {
+  position: fixed; z-index: 6; border: 1.5px dashed var(--accent);
+  background: rgba(74, 163, 224, 0.12); pointer-events: none; border-radius: 4px;
+}
+
+#toast {
+  position: fixed; bottom: 26px; left: 50%; transform: translateX(-50%);
+  z-index: 9; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 10px 18px; max-width: 70vw;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.45); font-size: 12.5px;
+}
+
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-thumb { background: #2c3846; border-radius: 4px; }

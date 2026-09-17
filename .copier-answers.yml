@@ -1,0 +1,24 @@
+# Changes here will be overwritten by Copier
+_commit: 6.0.0
+_src_path: /home/user/dev/python-copier-template
+author_email: 149961262+kasi-x@users.noreply.github.com
+author_name: kasi-x
+data_ethics: false
+data_reusable: false
+description: 名古屋市の標高データ(国土地理院5mDEM)とPLATEAU建物データを用いたGPU浅水方程式ベースの雨水流出エミュレーター
+distribution_name: flood-nagoya
+existing_project: false
+git_platform: github.com
+github_org: kasi-x
+include_web_api: false
+package_name: flood_nagoya
+project_type: data_science
+repo_name: flood-nagoya
+use_recommended_data_science: true
+use_recommended_docs: true
+use_recommended_integrations: true
+use_recommended_license: true
+use_recommended_polish: true
+use_recommended_quality: true
+use_recommended_security: true
+use_recommended_toolchain: true

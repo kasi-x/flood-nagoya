@@ -1,0 +1,32 @@
+---
+title: "flood-nagoya"
+subtitle: "A subtitle"
+format:
+  clean-revealjs:
+    self-contained: true
+    incremental: true
+    slide-number: false
+    output-file: "flood-nagoya_slides.html"
+html-math-method:
+  method: mathjax
+  url: "https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"
+author:
+  - name: "kasi-x"
+    orcid: ""
+    affiliations:
+      - name: "kasi-x"
+date: today
+execute:
+  echo: true
+jupyter: python3
+---
+
+# First slide
+
+- A bullet point
+- Another bullet point
+
+```{python}
+# A code cell
+print("Hello")
+```

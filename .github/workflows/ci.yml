@@ -1,0 +1,88 @@
+name: CI
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - '*'
+  pull_request:
+
+jobs:
+
+  lint:
+    uses: ./.github/workflows/_tasks.yml
+    with:
+      task_runner: just
+      task: lint,type-check,license-check
+
+  hygiene:
+    uses: ./.github/workflows/_hygiene.yml
+
+
+  test:
+    strategy:
+      matrix:
+        runs-on: ["ubuntu-latest"] # can add windows-latest, macos-latest
+
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+
+      fail-fast: false
+
+
+
+    uses: ./.github/workflows/_test.yml
+    with:
+      runs-on: ${{ matrix.runs-on }}
+      python-version: ${{ matrix.python-version }}
+      task_runner: just
+
+
+
+  docs:
+    uses: ./.github/workflows/_docs.yml
+    with:
+      task_runner: just
+    permissions:
+      contents: write
+
+
+  dist:
+    uses: ./.github/workflows/_dist.yml
+    with:
+      # The exact check for the installed wheel: <pkg> ships a `--version`
+      # CLI; web_api's app/ has no CLI entry point, so import it instead.
+      version-command: python -m flood_nagoya --version
+  
+  release:
+    needs: [dist, test, docs]
+    if: github.ref_type == 'tag'
+    uses: ./.github/workflows/_release.yml
+    permissions:
+      contents: write
+
+  required-checks-passed:
+    name: all required checks passed
+    needs: [hygiene, lint, test, docs, dist]
+
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all required jobs passed
+        run: |
+          failing=$(echo '${{ toJSON(needs) }}' | jq -r '
+            to_entries[] |
+            select(.value.result != "success" and .value.result != "skipped") |
+            "\(.key): \(.value.result)"
+          ')
+          if [ -n "$failing" ]; then
+            echo "$failing"
+            exit 1
+          fi

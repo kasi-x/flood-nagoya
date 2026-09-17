@@ -1,0 +1,31 @@
+name: Security
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  zizmor:
+    name: zizmor (GitHub Actions static analysis)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run zizmor
+        # advanced-security: false prints findings to the console instead of
+        # uploading SARIF, so no security-events: write is needed. Flip to the
+        # default once the repo is public (or has Advanced Security).
+        uses: zizmorcore/zizmor-action@70fb788f84895a7701f5643d103d587e460b5c99 # v0.6.3
+        with:
+          advanced-security: false
+          inputs: .github/workflows

@@ -1,0 +1,47 @@
+# Configuration for zizmor (GitHub Actions security analysis), run in CI via security.yml.
+# See https://woodruffw.github.io/zizmor for the full reference.
+#
+# All audits are enabled. The exceptions below are deliberate:
+#   - unpinned-uses on _pypi.yml: pypa/gh-action-pypi-publish@release/v1 is
+#     the upstream-recommended release line (mutable branch ref, not a tag
+#     renovate can digest-pin). Only generated when PyPI publishing is on.
+#   - superfluous-actions on _release.yml and ci.yml: softprops/
+#     action-gh-release uploads release assets (docs zip / firmware / GitHub
+#     release notes) from downloaded artifacts.
+#   - template-injection on ci.yml: the `required-checks-passed` gate renders
+#     `${{ toJSON(needs) }}` — job *outcomes* from the workflow's own `needs`,
+#     not attacker-controllable input.
+#   - template-injection on _container.yml: its smoke-test renders
+#     `${{ inputs.smoke-command }}`, which ci.yml (same repository) sets to a
+#     fixed literal (`--version` / `--help`), never to an external value.
+#   - self-repository (all workflows): `./.github/workflows/*` is the
+#     established local-reusable-workflow form here and in generated
+#     projects; zizmor v1.30's `$/...` suggestion is cosmetic for this
+#     repository layout.
+
+rules:
+  unpinned-uses:
+    ignore:
+      # _pypi.yml uses pypa/gh-action-pypi-publish@release/v1 (upstream's
+      # recommended release line; a branch ref, not a pinnable tag).
+      - _pypi.yml
+  superfluous-actions:
+    ignore:
+      # softprops/action-gh-release uploads multi-asset releases (docs zip)
+      # from downloaded artifacts.
+      - _release.yml
+      # online_judge / micropython ci.yml jobs use softprops/action-gh-release
+      # to publish release notes + firmware/assets on tag.
+      - ci.yml
+  self-repository:
+    ignore:
+      - ci.yml
+      - scheduled-check.yml
+  template-injection:
+    ignore:
+      # required-checks-passed renders toJSON(needs) — the workflow's own job
+      # outcomes, not attacker-controllable context.
+      - ci.yml
+      # _container.yml renders its smoke-command input, set by ci.yml in the
+      # same repository to a fixed literal.
+      - _container.yml

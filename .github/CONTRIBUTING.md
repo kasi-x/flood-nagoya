@@ -1,0 +1,32 @@
+# Contribute to the project
+
+Contributions and issues are most welcome! All issues and pull requests are
+handled through [GitHub](https://github.com/kasi-x/flood-nagoya/issues). Also, please check for any existing issues before
+filing a new one. If you have a great idea but it involves big changes, please
+file a ticket before making a pull request! We want to make sure you don't spend
+your time coding something that might not fit the scope of the project.
+
+## Security
+
+Please do not open a public issue for security vulnerabilities. Report them
+privately via the [Security Advisory workflow](https://github.com/kasi-x/flood-nagoya/security/advisories/new) — see [SECURITY.md](../SECURITY.md) for details.
+
+## Issue or Discussion?
+
+Github also offers [discussions](https://github.com/kasi-x/flood-nagoya/discussions) as a place to ask questions and share ideas. If
+your issue is open ended and it is not obvious when it can be "closed", please
+raise it as a discussion instead.
+
+## Code Coverage
+
+While 100% code coverage does not make a library bug-free, it significantly
+reduces the number of easily caught bugs! Please make sure coverage remains the
+same or is improved by a pull request!
+
+## Developer Information
+
+It is recommended that developers use a [vscode devcontainer](https://code.visualstudio.com/docs/devcontainers/containers). This repository contains configuration to set up a containerized development environment that suits its own needs.
+
+This project was created using the [python-copier-template](https://github.com/kasi-x/flood-nagoya) for Python projects.
+
+For more information on common tasks like setting up a developer environment, running the tests, and the lint workflow, see the template's [How-to guides](https://kasi-x.github.io/python-copier-template/6.0.0/how-to.html).

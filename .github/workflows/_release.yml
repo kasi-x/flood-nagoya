@@ -1,0 +1,64 @@
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  artifacts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        # Into its own directory, not the workspace root: `files: "*"` below
+        # uploads everything sitting in the workspace root as release
+        # assets, and that must stay limited to the downloaded artifacts.
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: _checkout
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Download artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          merge-multiple: true
+
+      - name: Zip up docs
+        run: |
+          set -vxeuo pipefail
+          # docs/_docs.yml uploads the built site: Sphinx as build/html
+          # contents (so the artifact holds an `html/` dir), zensical/mkdocs
+          # as the `site/` dir. Rename whichever exists so the release zip is
+          # named after the tag either way.
+          if [ -d html ]; then
+            mv html "$GITHUB_REF_NAME"
+          elif [ -d site ]; then
+            mv site "$GITHUB_REF_NAME"
+          else
+            echo "No docs output found (html/ or site/)" >&2
+            exit 1
+          fi
+          zip -r docs.zip "$GITHUB_REF_NAME"
+          rm -rf "$GITHUB_REF_NAME"
+
+      - name: Generate release notes with git-cliff
+        # Only this tag's conventional-commit history, categorised by type.
+        uses: orhun/git-cliff-action@f50e11560dce63f7c33227798f90b924471a88b5 # v4.8.0
+        with:
+          config: _checkout/cliff.toml
+          args: --repository _checkout --latest --strip all -o CHANGES.md
+
+      - name: Create GitHub Release
+        # We pin to the SHA, not the tag, for security reasons.
+        # https://docs.github.com/en/actions/learn-github-actions/security-hardening-for-github-actions#using-third-party-actions
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          prerelease: ${{ contains(github.ref_name, 'a') || contains(github.ref_name, 'b') || contains(github.ref_name, 'rc') }}
+          files: |
+            *
+            !_checkout
+          body_path: CHANGES.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,426 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = [ "setuptools>=77", "setuptools-scm[toml]>=8" ]
+
+[project]
+name = "flood-nagoya"
+description = "名古屋市の標高データ(国土地理院5mDEM)とPLATEAU建物データを用いたGPU浅水方程式ベースの雨水流出エミュレーター"
+readme = "README.md"
+license = "MIT"
+license-files = [ "LICENSE" ]
+authors = [
+  # Further authors may be added by duplicating this section
+  { name = "kasi-x", email = "149961262+kasi-x@users.noreply.github.com" }
+]
+requires-python = ">=3.11"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    ]
+dynamic = [ "version" ]
+
+dependencies = [
+    "structlog",
+    "duckdb",
+    "pyarrow",
+    "polars>=0.20.15",
+    "numpy>=2.4.6",
+    "pillow>=12.3.0",
+    "scipy>=1.17.1",
+]  # Add project dependencies here, e.g. ["click", "numpy"]
+urls.GitHub = "https://github.com/kasi-x/flood-nagoya"
+scripts.flood-nagoya = "flood_nagoya.__main__:main"
+
+
+[dependency-groups]
+dev = [
+    "basedpyright",
+    "zensical",
+    "mkdocstrings[python]",
+    "pyrefly",
+        "pytest",
+    "pytest-cov",
+    "ruff",
+            "ipykernel",
+    "nbclient",
+    "nbstripout",
+    "pandas",
+    "tomli",
+    "quartodoc",
+    "types-mock",
+    "vulture",
+    "deptry",
+    "typos",
+    "coverage>=7.15.4,<8",
+    "hypothesis>=6.130.0,<7.0",
+    "pip-audit>=2.9.0,<3.0",
+    "pip-licenses>=5.0,<6",
+    "pyproject-fmt>=2.27.0,<3.0",
+    "pytest-mock>=3.14.0,<4.0",
+    "pytest-timeout>=2.4.0,<2.5",
+    "pytest-xdist>=3.8.0,<3.9",
+    
+]
+
+[project.optional-dependencies]
+experiment = [
+    # 実験・探索・デバッグ用の依存 (marimo / 可視化 / LLM API)。
+    # uv: `uv sync --extra experiment` で追加インストール。
+    # pixi: `[tool.pixi.feature.experiment]` として分離。
+    "httpx>=0.27,<1",
+    "ipykernel",
+    "marimo",
+    "matplotlib>=3.8",
+    "nbclient",
+    "nbstripout",
+    "openai>=2.53.0,<3",
+    "pendulum>=3.2.0,<4",
+    "plotly>=5.20",
+    "seaborn>=0.13.2",
+    "wandb>=0.16.4",
+]
+
+
+
+[tool.setuptools_scm]
+version_file = "src/flood_nagoya/_version.py"
+# Publish pipelines generate first and `git init` later: without git
+# metadata setuptools_scm aborts every uv sync, so fall back to a
+# placeholder until the first commit provides the real version.
+fallback_version = "0.0.0"
+
+
+
+[tool.basedpyright]
+typeCheckingMode = "recommended"
+# Pin the language version to what the project actually targets
+# (requires-python / .python-version): ros2 humble -> 3.10, jazzy -> 3.12,
+# everything else 3.11. Without this basedpyright assumes its newest
+# supported Python and lets newer-only syntax slip through.
+pythonVersion = "3.11"
+include = ["src/flood_nagoya", "tests"]
+# tasks.py/duties.py: invoke/duty's own decorators (@task/@duty) and Context
+# are only partially typed upstream, so an explicit `basedpyright tasks.py`
+# (outside the `include` scan above) would otherwise be noisy.
+# MicroPython's tools/micropython/freeze.py is a device-build script (docker
+# image strings), excluded the same way as the firmware entry points below.
+exclude = []
+reportMissingImports = false # Ignore missing stubs in imported modules
+reportMissingTypeStubs = false
+analyzeUnannotatedFunctions = false # 完全未注釈関数はスキップ（partial のみ。none はもっと緩い）
+# 重複検出は ruff / vulture が担うので無効化（片方に寄せる）
+reportPrivateUsage = false
+reportUnusedParameter = false
+reportUnusedFunction = false
+reportUnusedImport = false
+reportCallInDefaultInitializer = false # typer のデフォルト引数は正当
+reportUnusedCallResult = false # argparse add_argument 等の副作用目的の呼び出しは正当
+enableTypeIgnoreComments = true # # type: ignore も受け付ける（mypy 互換）
+reportImplicitStringConcatenation = false # ruff の ISC 系（暗黙連結を推奨）と整合させる
+# NumPy 依存の数値モジュール (タイルモザイク/水理解析/CityGML パーサ) では
+# 未パラメータ化 ndarray 由来の Any 伝播を型レベルで排除できない。
+# 数値挙動は tests/test_pipeline_units.py と実パイプライン実行で検証する。
+reportAny = false
+reportUnknownVariableType = false
+reportUnknownArgumentType = false
+reportUnknownLambdaType = false
+reportUnknownMemberType = false # scipy.ndimage は部分的に型なし
+
+
+
+[tool.pyrefly]
+# Match requires-python / .python-version: the interpreter the project
+# actually targets (ros2 humble -> 3.10, ros2 jazzy -> 3.12, else 3.11).
+python-version = "3.11"
+project-includes = ["src/flood_nagoya"]
+project-excludes = ["venv", ".venv"]
+
+preset = "default"
+
+[tool.pytest.ini_options]
+# Run pytest with all our checkers, and don't spam us with massive tracebacks on error
+addopts = """
+    --tb=native -vv
+    """
+# https://iscinumpy.gitlab.io/post/bound-version-constraints/#watch-for-warnings
+filterwarnings = "error"
+# Doctest python code in docs, python code in src docstrings, test functions in tests
+testpaths = "src/flood_nagoya tests"
+
+
+
+[tool.coverage.run]
+patch = ["subprocess"]
+# Project-local data file: each generated project (and each parallel test
+# worker copying it) writes its own .coverage instead of racing on a shared
+# /tmp/<package>.coverage file.
+data_file = ".coverage"
+
+[tool.coverage.paths]
+# Tests are run from installed location, map back to the src directory
+source = ["src/flood_nagoya", "**/site-packages/"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+skip_empty = true
+
+[tool.typos.default]
+extend-ignore-words-re = ['\b[A-Z]{3}\b', 'lod', 'LOD', 'iy'] # CityGML LOD, ループ変数 iy
+extend-ignore-identifiers-re = ['\b[A-Z]{3}\b']
+
+[tool.typos.files]
+# docs のビルド出力 (site/) はチェック対象外。
+extend-exclude = ["site", "data", "web/lib"] # 取得データと vendor JS
+
+[tool.vulture]
+paths = ["src/flood_nagoya"]
+min_confidence = 80
+
+[tool.deptry]
+# 依存はプロジェクト本体を含む。DEP002（未使用依存）は使い始めるまで出るので無視する。
+# DEP004 pytest: pytest を import するのは tests/（fixture / raises /
+# MonkeyPatch）だけであり、正当な dev 専用利用。mcp_server のテストも同じ
+# ルールに触れるため、エンジン横断で無視する。
+per_rule_ignores = "DEP002=alembic|asgi-correlation-id|asyncpg|click|fastapi|httpx|pydantic|pydantic-settings|pendulum|prometheus-client|rich|slowapi|sqlalchemy|structlog|loguru|picologging|typer|uvicorn|duckdb|ipykernel|marimo|matplotlib|nbclient|nbstripout|openai|plotly|polars|pyarrow|seaborn|wandb,DEP003=flood_nagoya|requests,DEP004=pytest"
+# tasks.py/duties.py: root-level dev script, not project source -- deptry
+# would otherwise flag invoke/duty as DEP004 (dev-only dep imported by "source")
+exclude = ["tools", ".venv", ".pixi", ".task", "build", "dist"]
+
+[tool.pyproject_fmt]
+keep-full-version = true
+no-generate-python-version-classifiers = true
+
+
+
+[tool.ruff]
+src = ["src/flood_nagoya", "tests"]
+# tools/ は MicroPython の freeze.py（端末依存スクリプト）を、.github/pages は
+# 共有の CI ヘルパーを対象外とする。firmware エントリや ament の test/ は
+# ファイルごと除外せず、per-file-ignores で必要なルールだけ無効化する。
+extend-exclude = ["tools", ".github/pages", "alembic", "*.md", "**/_version.py"]
+line-length = 120
+# 挙動を変える可能性があるため、自動修正は safe-fix に限定する。
+unsafe-fixes = false
+lint.logger-objects = ["flood_nagoya.logging_setup.get_logger"]
+
+lint.preview = true
+lint.explicit-preview-rules = true
+lint.select = ["ALL"]
+lint.extend-ignore = [
+    "ANN001",  # missing-type-function-argument
+    "ANN002",  # missing-type-args
+    "ANN003",  # missing-type-kwargs
+    "ANN202",  # missing-return-type-private-function
+    "ANN204",  # missing-return-type-special-method
+    "ANN205",  # missing-return-type-static-method
+    "ANN206",  # missing-return-type-class-method
+    "ANN401",  # any-type
+    "SIM401",  # if-else-block-instead-of-dict-get
+    "S101",    # assert-used
+    "PT018",   # pytest-composite-assertion
+    "TD",
+    "FIX",
+    "T20",     # flake8-print
+    "TRY002",  # raise-vanilla-class
+    "TRY003",  # raise-vanilla-args
+    "D10",     # undocumented-code
+    "DOC",
+    "D420",    # incorrect-section-order
+    "D421",    # property-docstring-verb
+    "PLR2004", # magic-value-comparison
+    "PLR6301", # no-self-use
+    "E1",      # pycodestyle indentation
+    "E2",      # pycodestyle whitespace
+    "E3",      # pycodestyle blank lines
+    "E502",    # redundant-backslash
+    "W391",    # too-many-newlines
+    "COM812",  # missing-trailing-comma
+    "ISC001",  # single-line-implicit-str-concat
+    "TC",
+    "CPY001",  # missing-copyright-notice
+    "RUF105",  # noqa-comments
+    "RUF106",  # rule-codes-in-suppression
+    "RUF201",  # rule-codes-in-selectors
+    "PLW1514", # unspecified-encoding
+    "PT029",   # pytest-warns-without-warning
+    "TID254",  # lazy-import-mismatch
+    "TID255",  # lazy-import-immediately-resolved
+    # Parsing naive input (user text, filenames, log timestamps) and then
+    # attaching the project tz via `.replace(tzinfo=...)` is a common correct
+    # pattern that DTZ007 cannot see; drop this ignore once formats carry %z.
+    "DTZ007",  # call-datetime-strptime-without-zone
+    "FA",
+]
+# Pin PT001 to the bare `@pytest.fixture` style the template ships:
+# without this pin, a ruff default flip would silently restyle every test
+# file. `ruff check --fix` rewrites `@pytest.fixture()` to the bare form.
+lint.flake8-pytest-style.fixture-parentheses = false
+lint.task-tags = [
+    # Future
+    "WIP",
+    "TBD",
+    "HOLD",
+    "PLAN",
+    "MVP",
+    "WANT",
+    "PILOT",
+
+    # Fixes
+    "TODO",
+    "BUG",
+    "FIXME",
+    "HACK",
+    "MISSING",
+    "DOCME",
+    "UPGRADE",
+
+    # Memo
+    "MEMO",
+    "NOTE",
+    "CASE",
+
+    # Judgment
+    "MUST",
+    "SHOULD",
+    "MAY",
+    "FOLLOW",
+    "WHYNOT",
+    "RISK",
+    "WARN",
+    "IDEA",
+
+    # Reflection
+    "IMO",
+    "YAGNI",
+
+    # History
+    "ADR",
+    "CONTEXT",
+
+    # Conversation
+    "BLOCKER",
+    "REVIEW",
+    "DISCUSS",
+    "REQUEST",
+
+    # Tools
+    "ISSUE",
+    "QUESTION",
+
+    # TDD
+    "BLUE",
+    "RED",
+    "GREEN",
+    "REFACTOR",
+    "UNCOVERED",
+    "FLAKY",
+    "SLOW",
+    "OVERTEST",
+
+    # Performance
+    "BENCHMARK",
+    "SCALE",
+    "BOTTLENECK",
+
+    # Compliance
+    "SECURE",
+    "VULNERABILITY",
+    "PRIVACY",
+    "ILLEGAL",
+    "ACCESSIBILITY",
+    "LOCALIZE",
+
+    # Legacy
+    "DEPRECATE",
+    "DEBT",
+    "UNKNOWN",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-format = true
+# logging_setup.py has long logging-library setup calls that format
+# differently at line-length 88 vs 120 (allow_japanese), so exclude it from
+# formatting (E501 is already ignored for it).
+exclude = ["src/flood_nagoya/logging_setup.py"]
+
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+ignore-decorators = ["typing.overload"]
+
+[tool.ruff.lint.flake8-implicit-str-concat]
+# Implicit concatenation across lines is the standard style (ISC002 off);
+# ISC003 stays enabled, so explicit `+` concatenation is flagged. This is
+# ruff's default; written out so the choice is deliberate and stable.
+allow-multiline = true
+
+[tool.ruff.lint.pycodestyle]
+ignore-overlong-task-comments = true
+max-line-length = 120
+max-doc-length = 200
+
+[tool.ruff.lint.isort]
+force-single-line = true
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "parents"
+[tool.ruff.lint.flake8-type-checking]
+exempt-modules = ["typing", "typing_extensions"]
+quote-annotations = true
+
+[tool.ruff.lint.flake8-import-conventions.extend-aliases]
+"dask.dataframe" = "dd"
+"xarray" = "xr"
+"scipy" = "sp"
+"skopt" = "sko"
+"skimage" = "ski"
+"sklearn" = "sk"
+"returns" = "rt"
+"pandera" = "pa"
+
+[tool.ruff.lint.flake8-errmsg]
+max-string-length = 20
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.flake8-annotations]
+ignore-fully-untyped = true # 完全未注釈関数はスキップ（部分注釈の残りは要求）
+allow-star-arg-any = false
+suppress-dummy-args = false
+suppress-none-returning = false
+
+[tool.ruff.lint.per-file-ignores]
+# By default, private member access is allowed in tests
+# See https://github.com/kasi-x/python-copier-template/issues/154
+# Remove this line to forbid private member access in tests
+"tests/**/*" = [
+    "SLF001", # private member access  CONTEXT: テストは private を直接叩くことがある
+    "ANN",
+    "S",
+    "PT011",  # pytest-raises-too-broad  CONTEXT: ValueError 等の広さがテスト意図に合致
+    "PT013",  # pytest-raises-with-multiple-exceptions  CONTEXT: 複数例外はテストで自然
+    "PT015",  # pytest-assertion-in-raisable-block  CONTEXT: raises 内の assert は意図的
+    "B011",   # assert-false  CONTEXT: 到達しないことを明示する assert はテストで正当
+    "PLC0415",# import-outside-top-level  CONTEXT: test_qa.py は関数内 import で stdlib を遅延読込
+    "C416",   # manual-list-comprehension  CONTEXT: test_qa.py の walk_packages 収集は append が明確
+    "E402",   # module-import-not-at-top-of-file  CONTEXT: test_app.py は
+               #   DATABASE_URL を import 前に設定するため env → import の順が必須
+    "I001",   # unsorted-imports  CONTEXT: test_app.py の env → import 構造で isort は満足できない
+    "E501",   # line-too-long  CONTEXT: test_qa.py の assert メッセージ
+    "PLR0912",# too-many-branches  CONTEXT: test_qa.py の依存宣言チェックは複数分岐が自然
+]
+# logging_setup.py の長い呼び出し（structlog の ConsoleRenderer /
+# make_filtering_bound_logger、loguru の add() など）は line-length 設定により
+# ruff format が折り返しを変えるため、E501 は免除する。
+# 日本語 docstring の終端句読点（D415）とシングルトン設定の global（PLW0603）も免除。
+"src/flood_nagoya/logging_setup.py" = ["E501", "D", "PLW0603", "I001"]

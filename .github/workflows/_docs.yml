@@ -1,0 +1,145 @@
+on:
+  workflow_call:
+    inputs:
+      task_runner:
+        type: string
+        description: Which task runner drives the docs task (task, just, poe, make, pixi)
+        required: true
+      publish:
+        type: boolean
+        description: Publish the build to gh-pages (scheduled drift checks pass false to build only)
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # Serialize docs builds within this repository. A commit and its release
+    # tag are often pushed together, which starts two ci.yml runs; both
+    # would build docs and force-push gh-pages, colliding on the branch.
+    # This replaces the old `sleep 60` head-start, which was a guess (a
+    # build longer than the sleep still raced). One docs job runs at a
+    # time; the next is pending (and a superseded pending publish being
+    # replaced by a newer run is fine). cancel-in-progress must stay false:
+    # never cancel a publish mid-flight. Do NOT use github.workflow in the
+    # group -- inside a reusable workflow it resolves to the CALLER's name,
+    # which would collide with the caller's own concurrency group.
+    concurrency:
+      group: docs-publish-${{ github.repository }}
+      cancel-in-progress: false
+
+    # Job-level grant: the caller (ci.yml) sets contents: write for the docs
+    # job, but a reusable workflow's own top-level permissions cap it back to
+    # read -- and repo-level default_workflow_permissions is read-only, so
+    # the gh-pages publish would 403 without this explicit job grant.
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # Need this to get version number from last tag
+          fetch-depth: 0
+
+      - name: Rotate the apt cache key weekly
+        # Cache entries are immutable; the weekly key is what lets a new
+        # graphviz release enter the cache.
+        run: echo "APT_CACHE_WEEK=$(date +%G-W%V)" >> "$GITHUB_ENV"
+
+      - name: Install system packages
+        run: sudo apt-get install graphviz
+
+      - name: Install uv
+        if: hashFiles('pixi.lock', 'poetry.lock') == ''
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          # Explicit true (not the "auto" default) so tag-push runs also
+          # cache: "auto" disables caching on tag pushes.
+          enable-cache: true
+
+      - name: Install pixi
+        if: hashFiles('pixi.lock') != ''
+        uses: prefix-dev/setup-pixi@f00437f565399d418b0acc85936d12c1fb668347 # v0.10.1
+
+      - name: Install poetry
+        if: hashFiles('poetry.lock') != ''
+        uses: snok/install-poetry@a783c322200f0519c7926aa6faa857c4e23e9263 # v1
+
+      - name: Install Task
+        if: inputs.task_runner == 'task'
+        uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2.0.0
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Just
+        if: inputs.task_runner == 'just'
+        uses: extractions/setup-just@dd310ad5a97d8e7b41793f8ef055398d51ad4de6 # v2
+        with:
+          # zizmor unpinned-tools: the just CLI version is pinned and
+          # tracked by the weekly check-upstream drift report
+          just-version: "1.58.0"
+
+      - name: Build docs
+        env:
+          TASK_RUNNER: ${{ inputs.task_runner }}
+        run: |
+          set -eu
+          case "$TASK_RUNNER" in
+            task) task docs ;;
+            just) just docs ;;
+            make) make docs ;;
+            poe)
+              if [ -f poetry.lock ]; then
+                poetry run poe docs
+              else
+                uv run --locked poe docs
+              fi
+              ;;
+            pixi) pixi run -e dev --locked docs ;;
+            *) echo "Unknown task runner: $TASK_RUNNER" >&2; exit 1 ;;
+          esac
+
+      - name: Upload built docs artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: docs
+          # _release.yml zips this up. Sphinx writes build/html; zensical /
+          # mkdocs (no docs/conf.py) writes site/ by default. Upload whichever
+          # exists so the artifact always carries the built site.
+          path: |
+            build/html
+            site
+          if-no-files-found: error
+
+      - name: Sanitize ref name for docs version
+        run: echo "DOCS_VERSION=${GITHUB_REF_NAME//[^A-Za-z0-9._-]/_}" >> "$GITHUB_ENV"
+
+      - name: Move to versioned directory
+        run: |
+          # Sphinx builds to build/html; zensical/mkdocs (no docs/conf.py)
+          # builds to site/ per its default site_dir.
+          if [ -f docs/conf.py ]; then
+            mv build/html ".github/pages/$DOCS_VERSION"
+          else
+            mv site ".github/pages/$DOCS_VERSION"
+          fi
+
+      - name: Write switcher.json
+        if: hashFiles('docs/conf.py') != ''
+        run: python .github/pages/make_switcher.py --add "$DOCS_VERSION" "${{ github.repository }}" .github/pages/switcher.json
+
+      - name: Publish Docs to gh-pages
+        if: inputs.publish && (github.ref_type == 'tag' || github.ref_name == 'main')
+        # We pin to the SHA, not the tag, for security reasons.
+        # https://docs.github.com/en/actions/learn-github-actions/security-hardening-for-github-actions#using-third-party-actions
+        uses: peaceiris/actions-gh-pages@84c30a85c19949d7eee79c4ff27748b70285e453 # v4.1.0
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .github/pages
+          keep_files: true
