@@ -39,7 +39,7 @@
     下水道の排水は「排水能力」として近似しており、行政のハザードマップではありません。
   </p>
   <p class="hint src">
-    出典: 国土地理院 dem5a / Project PLATEAU (2022 名古屋市)
+    出典: 国土地理院 dem5a・航空写真(ort) / Project PLATEAU (2022 名古屋市)
   </p>
 </aside>
 
@@ -64,6 +64,8 @@
     <input type="range" id="speed" min="1" max="120" step="1" value="30"></div>
   <div class="ctl">
     <label class="chk"><input type="checkbox" id="bldgToggle" checked> PLATEAU建物を障害物として扱う</label>
+    <label class="chk"><input type="checkbox" id="photo3dToggle" checked> 3D: 航空写真を表示</label>
+    <label class="chk"><input type="checkbox" id="bldg3dToggle" checked> 3D: 建物を表示</label>
   </div>
   <div class="ctl disp">
     <label class="chk"><input type="radio" name="disp" value="depth" checked> 水深</label>
@@ -97,6 +99,6 @@
 </aside>
 
 <div id="toast" hidden></div>
-<script type="module" src="app.js?v=18g"></script>
+<script type="module" src="app.js?v=18h"></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 // 名古屋市 雨水流出エミュレーター — map view, region selection, UI wiring.
-import { FloodSim, MODE_TERRAIN, MODE_DEPTH, MODE_SPEED, MODE_MAXDEPTH } from "./sim.js?v=18g";
-import { ThreeView } from "./view3d.js?v=18g";
+import { FloodSim, MODE_TERRAIN, MODE_DEPTH, MODE_SPEED, MODE_MAXDEPTH } from "./sim.js?v=18h";
+import { ThreeView } from "./view3d.js?v=18h";
 
 const Z15 = 15;
 const EARTH = 40075016.686;
@@ -83,6 +83,37 @@ function resizeCanvas() {
   if (canvas.width !== w || canvas.height !== h) {
     canvas.width = w; canvas.height = h;
   }
+}
+
+/** Compose GSI aerial-photo tiles (ort) over the region into one canvas. */
+async function fetchPhotoCanvas(left, top, w, h, zoom) {
+  const k = 2 ** (zoom - Z15);
+  const ax = (meta.tile_range.x0 * TILE_PX + left) * k;
+  const ay = (meta.tile_range.y0 * TILE_PX + top) * k;
+  const wpx = Math.round(w * k), hpx = Math.round(h * k);
+  const tx0 = Math.floor(ax / TILE_PX), tx1 = Math.floor((ax + wpx - 1) / TILE_PX);
+  const ty0 = Math.floor(ay / TILE_PX), ty1 = Math.floor((ay + hpx - 1) / TILE_PX);
+  if ((tx1 - tx0 + 1) * (ty1 - ty0 + 1) > 110) return null;
+  const comp = document.createElement("canvas");
+  comp.width = wpx; comp.height = hpx;
+  const ctx = comp.getContext("2d");
+  const jobs = [];
+  for (let tx = tx0; tx <= tx1; tx++) {
+    for (let ty = ty0; ty <= ty1; ty++) jobs.push({ tx, ty });
+  }
+  let okCount = 0;
+  await Promise.all(jobs.map(({ tx, ty }) => new Promise((done) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      ctx.drawImage(img, tx * TILE_PX - ax, ty * TILE_PX - ay, TILE_PX, TILE_PX);
+      okCount++;
+      done();
+    };
+    img.onerror = () => done();
+    img.src = `https://cyberjapandata.gsi.go.jp/xyz/ort/${zoom}/${tx}/${ty}.jpg`;
+  })));
+  return okCount > 0 ? comp : null;
 }
 
 function mPerPxAt(lat) {
@@ -261,8 +292,14 @@ async function startSimFromRect(r) {
     const terrain = ctx.getImageData(0, 0, r.w, r.h);
     const bldg = ctxB.getImageData(0, 0, r.w, r.h);
 
-    regionInfo = { terrain: terrain.data, bldg: bldg.data, W: r.w, H: r.h, dx: meta.z15MPerPx };
+    regionInfo = { terrain: terrain.data, bldg: bldg.data, W: r.w, H: r.h, dx: meta.z15MPerPx, photo: null };
     if (threeView && view3dOn) threeView.setRegion(r.w, r.h, meta.z15MPerPx, regionInfo.terrain, regionInfo.bldg);
+    fetchPhotoCanvas(r.left, r.top, r.w, r.h, 16).then((photo) => {
+      if (photo && regionInfo.W === r.w) {
+        regionInfo.photo = photo;
+        if (threeView && view3dOn) threeView.setPhotoCanvas(photo);
+      }
+    });
     sim.mapMode = false;
     sim.streamsTex = null;
     // map textures are shared references — do not let dispose() delete them
@@ -293,8 +330,14 @@ function startCitySim() {
     const ctx = comp.getContext("2d", { willReadFrequently: true });
     ctx.drawImage(dem, 0, 0);
     const terrain = ctx.getImageData(0, 0, ow, oh);
-    regionInfo = { terrain: terrain.data, bldg: null, W: ow, H: oh, dx: meta.overviewMPerPx };
+    regionInfo = { terrain: terrain.data, bldg: null, W: ow, H: oh, dx: meta.overviewMPerPx, photo: null };
     if (threeView && view3dOn) threeView.setRegion(ow, oh, meta.overviewMPerPx, regionInfo.terrain, null);
+    fetchPhotoCanvas(0, 0, ow, oh, 13).then((photo) => {
+      if (photo && regionInfo.W === ow) {
+        regionInfo.photo = photo;
+        if (threeView && view3dOn) threeView.setPhotoCanvas(photo);
+      }
+    });
     sim.mapMode = false;
     sim.streamsTex = null;
     sim.terrainTex = null;
@@ -401,6 +444,12 @@ function wireUI() {
   $("bldgToggle").addEventListener("change", (e) => {
     sim.setParams({ bldgOn: e.target.checked ? 1 : 0 });
   });
+  $("photo3dToggle").addEventListener("change", (e) => {
+    if (threeView) threeView.setPhotoVisible(e.target.checked);
+  });
+  $("bldg3dToggle").addEventListener("change", (e) => {
+    if (threeView) threeView.setBuildingsVisible(e.target.checked);
+  });
   document.querySelectorAll('input[name="disp"]').forEach((el) => {
     el.addEventListener("change", (e) => {
       renderMode = { depth: MODE_DEPTH, speed: MODE_SPEED, max: MODE_MAXDEPTH }[e.target.value] ?? MODE_TERRAIN;
@@ -429,7 +478,7 @@ function set3d(on) {
     if (!regionInfo) { toast("先にシミュレーション範囲を選んでください"); view3dOn = false; return; }
     if (!threeView) { threeView = new ThreeView($("gl3d")); window.__view3d = threeView; }
     const r = regionInfo;
-    threeView.setRegion(r.W, r.H, r.dx, r.terrain, r.bldg);
+    threeView.setRegion(r.W, r.H, r.dx, r.terrain, r.bldg, r.photo);
     $("gl3d").hidden = false;
     $("gl").style.visibility = "hidden";
     for (const loc of LOCATIONS) loc.el.style.display = "none";

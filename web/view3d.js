@@ -24,6 +24,8 @@ void main() {
 const TERRAIN_FRAG = /* glsl */ `
 precision highp float;
 uniform sampler2D uTerr;
+uniform sampler2D uPhoto;
+uniform float uHasPhoto;
 uniform vec2 uTexel;
 varying vec2 vUv;
 float elevAt(vec2 uv) {
@@ -35,11 +37,15 @@ void main() {
   float tx = elevAt(vUv + vec2(uTexel.x, 0.0)) - elevAt(vUv - vec2(uTexel.x, 0.0));
   float ty = elevAt(vUv + vec2(0.0, uTexel.y)) - elevAt(vUv - vec2(0.0, uTexel.y));
   vec3 n = normalize(vec3(-tx, 4.0, -ty));
-  float shade = clamp(dot(n, normalize(vec3(-0.5, 0.8, -0.35))), 0.0, 1.0) * 0.55 + 0.5;
+  float dl = clamp(dot(n, normalize(vec3(-0.5, 0.8, -0.35))), 0.0, 1.0);
   float hn = clamp(z / 200.0, 0.0, 1.0);
   vec3 land = mix(vec3(0.52, 0.58, 0.45), vec3(0.70, 0.66, 0.55), smoothstep(0.05, 0.6, hn));
   land = mix(land, vec3(0.60, 0.56, 0.52), smoothstep(0.6, 1.0, hn));
-  gl_FragColor = vec4(land * shade, 1.0);
+  vec3 col = land * (dl * 0.55 + 0.5);
+  // PLATEAU View style: aerial photo draped on the terrain, relief-shaded
+  vec3 photo = texture2D(uPhoto, vUv).rgb;
+  col = mix(col, photo * (dl * 0.35 + 0.78), uHasPhoto);
+  gl_FragColor = vec4(col, 1.0);
 }`;
 
 const WATER_VERT = /* glsl */ `
@@ -88,18 +94,23 @@ export class ThreeView {
   constructor(canvas) {
     this.canvas = canvas;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setClearColor(0x0e1116);
+    // PLATEAU View look: light sky, soft haze
+    this.renderer.setClearColor(0x9cc0e0);
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.Fog(0x0e1116, 12000, 45000);
+    this.scene.background = new THREE.Color(0x9cc0e0);
+    this.scene.fog = new THREE.Fog(0xc4d8ea, 12000, 45000);
     this.camera = new THREE.PerspectiveCamera(55, 1, 5, 120000);
     this.controls = null;
     this.group = null;
     this.stateTex = null;
     this.terrTex = null;
-    this.light = new THREE.DirectionalLight(0xfff2e0, 1.3);
+    this.photoTex = null;
+    this.showBuildings = true;
+    this.showPhoto = true;
+    this.light = new THREE.DirectionalLight(0xfff2e0, 0.95);
     this.light.position.set(-3000, 6000, -2500);
     this.scene.add(this.light);
-    this.scene.add(new THREE.AmbientLight(0xbfd4ff, 0.7));
+    this.scene.add(new THREE.AmbientLight(0xbfd4ff, 0.45));
     this.running = false;
     this.resize();
     window.addEventListener("resize", () => this.resize());
@@ -116,7 +127,7 @@ export class ThreeView {
   }
 
   /** terrainData/bldgData: RGBA arrays with cm encodings (may be null). */
-  setRegion(W, H, mPerPx, terrainData, bldgData) {
+  setRegion(W, H, mPerPx, terrainData, bldgData, photoCanvas) {
     this.disposeRegion();
     const g = new THREE.Group();
     this.W = W; this.H = H; this.dx = mPerPx;
@@ -140,6 +151,7 @@ export class ThreeView {
     this.stateTex.magFilter = THREE.LinearFilter;
     this.stateTex.minFilter = THREE.LinearFilter;
     this.stateTex.needsUpdate = true;
+    this.setPhotoCanvas(photoCanvas);
 
     // shared grid geometry (positions xz; y comes from the vertex shader)
     const positions = new Float32Array(nx * ny * 3);
@@ -169,13 +181,15 @@ export class ThreeView {
     const terrMat = new THREE.ShaderMaterial({
       uniforms: {
         uTerr: { value: this.terrTex },
+        uPhoto: { value: this.photoTex },
+        uHasPhoto: { value: this.photoTex ? 1.0 : 0.0 },
         uExag: { value: EXAG },
         uTexel: { value: new THREE.Vector2(1 / W, 1 / H) },
-        uFog: { value: new THREE.Color(0x0e1116) },
       },
       vertexShader: TERRAIN_VERT,
       fragmentShader: TERRAIN_FRAG,
     });
+    this.terrainMat = terrMat;
     const terrain = new THREE.Mesh(geo, terrMat);
     g.add(terrain);
 
@@ -267,7 +281,9 @@ export class ThreeView {
           m4.makeScale(mPerPx * 0.94, bh * EXAG, mPerPx * 0.94);
           m4.setPosition(x * mPerPx - cx, (bed + bh / 2) * EXAG, y * mPerPx - cz);
           inst.setMatrixAt(k, m4);
-          col.setRGB(0.32, 0.33, 0.37).lerp(new THREE.Color(0.62, 0.60, 0.64), Math.min(bh / 40, 1));
+          // PLATEAU View look: light neutral walls, taller = slightly lighter
+          const t = (((x * 73856093) ^ (y * 19349663)) >>> 0) % 100 / 100;
+          col.setRGB(0.72 + t * 0.12, 0.73 + t * 0.12, 0.75 + t * 0.11);
           inst.setColorAt(k, col);
           k++;
         }
@@ -279,8 +295,13 @@ export class ThreeView {
       g.add(inst);
     }
 
+    // PLATEAU View style: aerial photo draped on the terrain (optional)
+    this.photoUniform = this.terrainMat.uniforms.uHasPhoto;
+    this.setPhotoVisible(this.showPhoto);
+
     this.scene.add(g);
     this.group = g;
+    this.setBuildingsVisible(this.showBuildings);
 
     // camera: look from the south-west, above
     const R = Math.max(W, H) * mPerPx;
@@ -319,6 +340,33 @@ export class ThreeView {
     this.stateTex.needsUpdate = true;
   }
 
+  /** Attach (or replace) an aerial-photo canvas draped on the terrain. */
+  setPhotoCanvas(canvas) {
+    if (this.photoTex) { this.photoTex.dispose(); this.photoTex = null; }
+    if (!canvas) return;
+    const t = new THREE.CanvasTexture(canvas);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 4;
+    this.photoTex = t;
+    if (this.terrainMat) {
+      this.terrainMat.uniforms.uPhoto.value = t;
+      this.terrainMat.uniforms.uHasPhoto.value = this.showPhoto ? 1.0 : 0.0;
+      this.terrainMat.uniforms.uPhoto.value.needsUpdate = true;
+    }
+  }
+
+  setPhotoVisible(v) {
+    this.showPhoto = v;
+    if (this.terrainMat) {
+      this.terrainMat.uniforms.uHasPhoto.value = v && this.photoTex ? 1.0 : 0.0;
+    }
+  }
+
+  setBuildingsVisible(v) {
+    this.showBuildings = v;
+    if (this.buildings) this.buildings.visible = v;
+  }
+
   disposeRegion() {
     if (this.group) {
       this.scene.remove(this.group);
@@ -329,6 +377,7 @@ export class ThreeView {
       this.group = null;
     }
     if (this.terrTex) { this.terrTex.dispose(); this.terrTex = null; }
+    if (this.photoTex) { this.photoTex.dispose(); this.photoTex = null; }
     if (this.stateTex) { this.stateTex.dispose(); this.stateTex = null; }
   }
 }
