@@ -42,7 +42,8 @@
   （建物トグルONでローカル箱を表示、PLATEAUタイルは読み込まない）
 
 ### 2026-09-24 追加対応
-- **気象レイヤー**: RainViewer 降水レーダーを deck.gl に追加 (`weatherToggle`)
+- **気象レイヤー**: RainViewer 降水レーダーを deck.gl に追加 (`weatherToggle` / `?weather=1`)
+- **分水域・流路オーバーレイ**: `streams.png` を `BitmapLayer` で地形にドレープ
 - **建物の浮き修正**: `buildBldgInstances` で footprint 最低地盤高を底面に変更
   （斜面で建物が浮かないよう `minBed - margin` を底面、`bedAvg + bh` を上面に）
 

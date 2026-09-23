@@ -50,6 +50,8 @@ PLATEAU の 3D Tiles を CesiumJS 等で表示すると、建物が空中に浮�
   内蔵の tileset URL 表 (`web/geo.js`) にフォールバックする。
   気象レイヤーとして RainViewer 降水レーダー (`weatherToggle`) を
   `TileLayer` + `BitmapLayer` で地形に重ねられる (無料・APIキー不要)。
+  分水域・流路オーバーレイ (`streamsSimToggle`) も `BitmapLayer` で
+  シミュレーション領域にドレープする。
 - **CesiumJS** (`web/view3d_cesium.js`): Web上で実寸都市モデルを表示する
   定番構成。地形は GSI dem5a_png を HeightmapTerrainData に変換する自前
   provider (`?ionToken=` で PLATEAU-Terrain に差し替え)、建物は
