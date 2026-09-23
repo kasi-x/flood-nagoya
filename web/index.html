@@ -130,6 +130,40 @@
       </svg></button>
   </div>
 
+  <dialog id="welcomeDlg" aria-labelledby="welcomeTitle">
+    <div class="welcome-head">
+      <span class="mark"><svg class="ic"><use href="#i-waves" /></svg></span>
+      <div>
+        <h2 id="welcomeTitle">FLOOD NAGOYA</h2>
+        <p>名古屋市の雨水流出エミュレーター</p>
+      </div>
+    </div>
+    <p class="welcome-sub">5m DEM × PLATEAU建物 × GPU浅水方程式で、降雨による内水氾濫をリアルタイムにシミュレーションします。</p>
+    <div class="welcome-opts">
+      <button class="welcome-opt" data-action="map">
+        <svg class="ic"><use href="#i-map" /></svg>
+        <b>地図で範囲を選ぶ</b>
+        <span>ドラッグで任意の範囲を選択してシミュレーション</span>
+      </button>
+      <button class="welcome-opt" data-action="region">
+        <svg class="ic"><use href="#i-grid" /></svg>
+        <b>栄周辺で実行</b>
+        <span>約7×5.5kmのプリセット範囲で即座に開始</span>
+      </button>
+      <button class="welcome-opt" data-action="city">
+        <svg class="ic"><use href="#i-globe" /></svg>
+        <b>名古屋市全域で実行</b>
+        <span>広域モードで市全体の浸水を計算</span>
+      </button>
+      <button class="welcome-opt" data-action="replay">
+        <svg class="ic"><use href="#i-play" /></svg>
+        <b>浸水リプレイを見る</b>
+        <span>実測降雨の事前計算結果を再生</span>
+      </button>
+    </div>
+    <label class="welcome-skip"><input type="checkbox" id="welcomeSkip"> 次回から表示しない</label>
+  </dialog>
+
   <aside id="mapPanel" class="panel">
     <div class="panel-scroll">
       <section>

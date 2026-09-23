@@ -179,6 +179,30 @@ function init() {
     setupMap();
     requestAnimationFrame(loop);
   }).catch(() => toast("meta.json を読み込めません。`python -m flood_nagoya build` を実行してください"));
+
+  // 初回起動ダイアログ: 起動オプションを選ばせる (localStorageで記憶)
+  const welcomeDlg = $("welcomeDlg");
+  const welcomeSeen = localStorage.getItem("flood-nagoya-welcome-seen");
+  if (!welcomeSeen && welcomeDlg) {
+    welcomeDlg.showModal();
+    for (const btn of welcomeDlg.querySelectorAll(".welcome-opt")) {
+      btn.addEventListener("click", () => {
+        const action = btn.dataset.action;
+        if ($("welcomeSkip").checked) localStorage.setItem("flood-nagoya-welcome-seen", "1");
+        welcomeDlg.close();
+        if (action === "region") {
+          document.querySelector("#regionList button")?.click();
+        } else if (action === "city") {
+          $("cityBtn")?.click();
+        } else if (action === "replay") {
+          const first = document.querySelector("#replayList button");
+          if (first) first.click();
+          else toast("リプレイデータがありません。`python -m flood_nagoya precompute` を実行してください");
+        }
+        // "map" は何もしない (地図で範囲選択に進む)
+      });
+    }
+  }
   // 事前計算リプレイのカタログ (あれば地図パネルにボタン一覧を出す)
   playback.available().then((ok) => {
     if (!ok) return;
