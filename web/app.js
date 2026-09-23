@@ -4,6 +4,7 @@ import { FloodSim, MODE_DEPTH, MODE_MAXDEPTH, MODE_SPEED, MODE_TERRAIN } from ".
 import { ThreeView } from "./view3d.js?v=23";
 import { CesiumView } from "./view3d_cesium.js?v=27";
 import { DeckView } from "./view3d_deck.js?v=27";
+import { extractChannels } from "./river.js?v=1";
 
 const Z15 = 15;
 const EARTH = 40075016.686;
@@ -49,6 +50,7 @@ let fpsInfo = { last: performance.now(), dtAvg: 16 };
 let mapReady = false;
 let mapDemTex = null, mapStreamsTex = null, mapBldgTex = null;
 let mapLayers = { bldg: true, streams: true };
+let riverOn = true;            // 河川氾濫モデル (1D河道→2D溢水)
 let observedList = [];   // [{kind, button, entry}] in index.json order
 // 3Dビュワー (three.js / deck.gl / CesiumJS) の種別とインスタンス。
 // すべて setRegion/updateWater 等の共通インターフェースを持つ。
@@ -140,6 +142,20 @@ const latToY = (lat, z) => {
 };
 const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
 
+/** Compute the river-channel field for the current grid and upload it. */
+function applyRiverField(terrainData, w, h, dx) {
+  if (!sim) return;
+  if (!riverOn) { sim.setRiverField(null); return; }
+  try {
+    // terrainData may be ImageData (from getImageData) or Uint8Array
+    const px = terrainData instanceof ImageData ? terrainData.data : terrainData;
+    sim.setRiverField(extractChannels(px, w, h, dx));
+  } catch (e) {
+    console.warn("river field failed", e);
+    sim.setRiverField(null);
+  }
+}
+
 function init() {
   const canvas = $("gl");
   canvas.addEventListener("webglcontextlost", (e) => {
@@ -155,6 +171,7 @@ function init() {
     toast(err.message, 15000);
     return;
   }
+
   fetch("meta.json").then((r) => r.json()).then((m) => {
     meta = m;
     window.__meta = m;
@@ -818,6 +835,7 @@ async function startPlayback(dir) {
     sim.bldgTex = null;
     sim.dispose();
     sim.setGrid(m.grid.w, m.grid.h, m.grid.dx, terr2, bldg2);
+    applyRiverField(terr2, m.grid.w, m.grid.h, m.grid.dx);
     sim.rainSeries = m.series;
     sim.rainEnd = m.series[m.series.length - 1][0];
     sim.rainLeft = sim.rainEnd;
@@ -946,6 +964,7 @@ async function startSimFromRect(r) {
     sim.bldgTex = null;
     sim.dispose();
     sim.setGrid(r.w, r.h, meta.z15MPerPx, regionInfo.terrain, regionInfo.bldg);
+    applyRiverField(regionInfo.terrain, r.w, r.h, meta.z15MPerPx);
     flow.field = null;
     flow.reset();
     sim.view = {
@@ -1004,6 +1023,7 @@ function startCitySim() {
     sim.bldgTex = null;
     sim.dispose();
     sim.setGrid(ow, oh, meta.overviewMPerPx, terrain.data, bldgData);
+    applyRiverField(terrain.data, ow, oh, meta.overviewMPerPx);
     flow.field = null;
     flow.reset();
     sim.view = fitView(ow, oh);
@@ -1129,6 +1149,11 @@ function wireUI() {
   }
   $("bldgToggle").addEventListener("change", (e) => {
     sim.setParams({ bldgOn: e.target.checked ? 1 : 0 });
+  });
+  $("riverToggle").addEventListener("change", (e) => {
+    riverOn = e.target.checked;
+    // 現在のグリッドで河道フィールドを再計算/解除する
+    if (sim && sim.terrainData) applyRiverField(sim.terrainData, sim.W, sim.H, sim.dx);
   });
   $("bldgLayerChk").addEventListener("change", (e) => {
     mapLayers.bldg = e.target.checked;

@@ -20,6 +20,7 @@ import numpy as np
 from PIL import Image
 
 if TYPE_CHECKING:
+    from .river import ChannelField
     from .underground import UndergroundZone
 
 from .config import WEB_DIR
@@ -239,6 +240,7 @@ def step(
     loss_ms: float,
     sea_level: float = 0.0,
     coastal_mask: np.ndarray | None = None,
+    river_excess: np.ndarray | None = None,
 ) -> None:
     """One pipe-scheme step in place; updates qe (H,W-1) and qs (H-1,W) too.
 
@@ -248,6 +250,9 @@ def step(
     If ``coastal_mask`` is supplied, those cells are forced to keep at
     least ``sea_level - z`` water depth, approximating a raised sea level
     (storm surge / high tide) backing up from the coast.
+
+    If ``river_excess`` is supplied, channel cells are forced to at least
+    that water depth, approximating river overflow onto the floodplain.
     """
     # 境界外は水なし (h=0) ・地盤は端セル値 → 端から自由排水
     h_we = np.pad(h, ((0, 0), (1, 1)), constant_values=0.0)
@@ -275,6 +280,8 @@ def step(
     h[wall] = 0.0
     if coastal_mask is not None and sea_level > 0.0:
         h[coastal_mask] = np.maximum(h[coastal_mask], sea_level - z[coastal_mask])
+    if river_excess is not None:
+        h[:] = np.maximum(h, river_excess)
     qe[...] = qe_face[:, 1:-1]
     qs[...] = qs_face[1:-1, :]
 
@@ -378,6 +385,7 @@ def _run_precompute_simulation(
     zones: list[UndergroundZone] | None = None,
     zone_props: list[tuple[np.ndarray, float]] | None = None,
     volumes: np.ndarray | None = None,
+    river_field: ChannelField | None = None,
 ) -> tuple[np.ndarray, list[float], list[dict[str, float]]]:
     """Run the LISFLOOD-FP loop and emit 60-second frames to ``out``.
 
@@ -423,6 +431,11 @@ def _run_precompute_simulation(
         if i == n_steps:
             break
         rate = rain_rate_at(series, t) / 1000.0 / 3600.0
+        river_excess = None
+        if river_field is not None:
+            from .river import river_excess_depth  # noqa: PLC0415
+
+            river_excess = river_excess_depth(river_field, rain_rate_at(series, t))
         if underground_on:
             assert zones is not None and zone_props is not None and volumes is not None
             volumes[:], sink = step_underground(zones, h, dt, volumes, zone_props)
@@ -441,6 +454,7 @@ def _run_precompute_simulation(
             loss_ms,
             sea_level=sea_level_m,
             coastal_mask=region.coastal_mask,
+            river_excess=river_excess,
         )
         t += dt
         if progress and i % 2000 == 0:
@@ -462,6 +476,7 @@ def precompute(
     progress: bool = True,
     sea_level_m: float = 0.0,
     underground: bool = False,
+    river: bool = False,
 ) -> Path:
     """Precompute a 7x5.5km flood replay (default: Sakai) into web/precomputed/.
 
@@ -476,9 +491,10 @@ def precompute(
         streams_only: regenerate the streams overlay without recomputing flood.
         progress: print progress messages.
         sea_level_m: raised sea level [m] applied at coastal boundary cells,
-            approximating storm surge / high tide backing into low ground.
         underground: enable the simplified underground-space inundation model
             for Nagoya Station / Sakae / Fushimi underground malls.
+        river: enable the 1D river-channel model (catchment → discharge →
+            stage → overflow onto the 2D floodplain).
     """
     out = out_dir or (WEB_DIR / "precomputed" / "sakai")
     out.mkdir(parents=True, exist_ok=True)
@@ -507,6 +523,12 @@ def precompute(
         zone_props = list(zip(masks, areas, strict=True))
         volumes = np.zeros(len(zones), dtype=np.float64)
 
+    river_field = None
+    if river:
+        from .river import extract_channels  # noqa: PLC0415
+
+        river_field = extract_channels(region.elev, region.dx)
+
     _hmax, times, stats = _run_precompute_simulation(
         region,
         out,
@@ -519,6 +541,7 @@ def precompute(
         zones=zones,
         zone_props=zone_props,
         volumes=volumes,
+        river_field=river_field,
     )
 
     # 2D表示用の縮小地形/建物ラスタ + 分水域オーバーレイ

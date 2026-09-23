@@ -155,6 +155,21 @@ def test_step_sea_level_raises_coastal_cells() -> None:
     assert float(h[:-1, :].max()) == 0.0
 
 
+def test_step_river_excess_forces_channel_depth() -> None:
+    """River overflow forces channel cells to at least the excess depth."""
+    n = 16
+    z = np.full((n, n), 10.0, dtype=np.float32)
+    h = np.zeros((n, n), dtype=np.float32)
+    qe = np.zeros((n, n - 1), dtype=np.float32)
+    qs = np.zeros((n - 1, n), dtype=np.float32)
+    wall = np.zeros((n, n), dtype=bool)
+    river = np.zeros((n, n), dtype=np.float32)
+    river[8, 8] = 2.5  # one channel cell with 2.5 m excess
+    step(h, qe, qs, z, wall, 1.0, 8.0, 0.02, 0.0, 0.0, river_excess=river)
+    assert float(h[8, 8]) == pytest.approx(2.5, abs=1e-5)
+    assert float(h.max()) == pytest.approx(2.5, abs=1e-5)
+
+
 def test_encode_frame_rgba_quantization() -> None:
     h = np.full((4, 4), 0.5, dtype=np.float32)
     hmax = np.full((4, 4), 1.2, dtype=np.float32)

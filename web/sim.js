@@ -26,6 +26,8 @@ uniform sampler2D uBldg;
 uniform sampler2D uRainTex;   // observed spatial rain; count = 0.5 mm/h
 uniform vec4 uRainXForm;      // frag px -> rain uv: uv = frag*xy + zw
 uniform float uRainTexOn;
+uniform sampler2D uRiver;     // R=area m², G=slope, B=width m, A=bankfull m
+uniform float uRiverOn;
 uniform float uDt, uDx, uG, uManning, uRain, uDrain, uInfil, uBldgOn;
 out vec4 oState;
 
@@ -87,6 +89,15 @@ void main(){
     rainMS = mmh / 1000.0 / 3600.0;
   }
   float h1 = h + uDt/uDx * (inW - qE + inN - qS) - loss + rainMS * uDt;
+  // 河道溢水: 集水域→流量→Manning水位→bankfull超過分を強制水深として注入
+  if (uRiverOn > 0.5) {
+    vec4 rv = texelFetch(uRiver, P, 0);
+    if (rv.r > 0.0) {   // channel cell (area > 0)
+      float q = 0.65 * rainMS * rv.r;                       // m³/s
+      float stage = pow(q * 0.035 / max(rv.b * sqrt(rv.g), 1e-9), 0.6);
+      h1 = max(h1, stage - rv.a);                           // excess over bankfull
+    }
+  }
   h1 = min(max(h1, 0.0), 30.0);   // 物理上限ガード (都市内水害で30mは起り得ない)
   if(wall){ h1 = 0.0; qE = 0.0; qS = 0.0; }
   oState = vec4(h1, qE, qS, max(s.w, h1));
@@ -314,6 +325,8 @@ export class FloodSim {
     this.rainTex = null;                // current observed-rain frame texture
     this.rainXForm = [1, 1, 0, 0];      // frag px -> frame uv
     this.streamsOverlay = false;        // 分水域オーバーレイ (リプレイ2D用)
+    this.riverTex = null;               // 河道パラメータ (R=area,G=slope,B=width,A=bankfull)
+    this.riverOn = false;               // 河川氾濫モデル有効フラグ
     this.paused = true;
     this.volume0 = 0;
     this.stats = null;
@@ -323,6 +336,7 @@ export class FloodSim {
   setGrid(width, height, mPerPx, terrainData, bldgData) {
     const gl = this.gl;
     this.W = width; this.H = height; this.dx = mPerPx;
+    this.terrainData = terrainData;   // keep for river-field recompute
     this.terrainTex = makeTex(gl, width, height, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, terrainData);
     this.bldgTex = makeTex(gl, width, height, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE,
       bldgData ? bldgData : new Uint8Array(width * height * 4));
@@ -405,9 +419,34 @@ export class FloodSim {
     this.spatialRain = true;
     if (xform) this.rainXForm = xform;
   }
-
   /** Bind (or unbind with null) the active observed-rain frame texture. */
   setRainTexture(tex) { this.rainTex = tex; }
+
+  /**
+   * Upload the river-channel field (from river.js extractChannels) as an
+   * RGBA32F texture: R=area m², G=slope, B=width m, A=bankfull depth m.
+   * Pass null to disable the river model.
+   */
+  setRiverField(field) {
+    const gl = this.gl;
+    if (!field) { this.riverOn = false; return; }
+    const { W, H, area, slope, width, depth } = field;
+    const buf = new Float32Array(W * H * 4);
+    for (let i = 0; i < W * H; i++) {
+      buf[i * 4] = area[i];
+      buf[i * 4 + 1] = slope[i];
+      buf[i * 4 + 2] = width[i];
+      buf[i * 4 + 3] = depth[i];
+    }
+    if (!this.riverTex) this.riverTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.riverTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, W, H, 0, gl.RGBA, gl.FLOAT, buf);
+    this.riverOn = true;
+  }
 
   /** Rain intensity at model time t (mm/h); constant rate when no series. */
   rainRateAt(t) {
@@ -456,7 +495,8 @@ export class FloodSim {
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.terrainTex); gl.uniform1i(u.uTerrain, 1);
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.bldgTex);    gl.uniform1i(u.uBldg, 2);
     gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, this.rainTex);   gl.uniform1i(u.uRainTex, 3);
-    gl.uniform1f(u.uRainTexOn, this.spatialRain && this.rainTex ? 1 : 0);
+    gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, this.riverTex);  gl.uniform1i(u.uRiver, 4);
+    gl.uniform1f(u.uRiverOn, this.riverOn && this.riverTex ? 1 : 0);
     gl.uniform4f(u.uRainXForm, this.rainXForm[0], this.rainXForm[1], this.rainXForm[2], this.rainXForm[3]);
     const p = this.params;
     const rainOn = this.rainLeft > 0 && !this.paused;

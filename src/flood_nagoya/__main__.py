@@ -103,6 +103,11 @@ def _build_parser() -> ArgumentParser:
         action="store_true",
         help="名古屋駅・栄地下街などの簡易地下空間内水氾濫モデルを有効にする",
     )
+    prec.add_argument(
+        "--river",
+        action="store_true",
+        help="1D河道モデル (集水域→流量→水位→氾濫原への溢水) を有効にする",
+    )
 
     hist = sub.add_parser(
         "historical-scenario",
@@ -163,6 +168,7 @@ def _dispatch(parsed: Namespace) -> None:
             streams_only=parsed.streams_only,
             sea_level_m=parsed.sea_level,
             underground=parsed.underground,
+            river=parsed.river,
         )
 
 
