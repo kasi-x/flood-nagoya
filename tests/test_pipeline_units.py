@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
+from typing import Self
 
 import numpy as np
 import pytest
@@ -158,3 +160,168 @@ def test_write_bldg_tiles_order_and_clamp(tmp_path: Path, monkeypatch: pytest.Mo
     tile11 = np.array(Image.open(tmp_path / "bldg" / "11_21.png"))
     g = int(tile11[44, 44, 0]) * 256 + int(tile11[44, 44, 1])
     assert g == 0, "negative height must not wrap into a huge unsigned value"
+
+
+def test_parse_dem_txt_fast_path_plain_grid() -> None:
+    """Comma-separated grid with no voids takes the bulk-parse fast path."""
+    from flood_nagoya.gsitiles import TILE_SIZE
+
+    rows = [[str(r * TILE_SIZE + c) for c in range(TILE_SIZE)] for r in range(TILE_SIZE)]
+    data = parse_dem_txt(_encode_tile(rows))
+    assert data.shape == (TILE_SIZE, TILE_SIZE)
+    assert data[0, 0] == 0.0
+    assert data[TILE_SIZE - 1, TILE_SIZE - 1] == float(TILE_SIZE * TILE_SIZE - 1)
+
+
+def test_parse_dem_txt_short_row_raises() -> None:
+    """A row with fewer than TILE_SIZE values hits the strict parser error."""
+    from flood_nagoya.gsitiles import TILE_SIZE
+
+    rows = [["1"] * TILE_SIZE for _ in range(TILE_SIZE)]
+    rows[3] = ["1"] * (TILE_SIZE - 1)  # one short row
+    with pytest.raises(ValueError, match="row 3"):
+        parse_dem_txt(_encode_tile(rows))
+
+
+def test_tile_url_composes_layer_zoom_xy() -> None:
+    from flood_nagoya.gsitiles import tile_url
+
+    url = tile_url(28844, 12960)
+    assert url.endswith("/15/28844/12960.txt")
+    assert "dem5a" in url
+
+
+def _fake_urlopen(body: bytes | None = None, error: Exception | None = None):
+    """Build a urlopen replacement returning body or raising error."""
+
+    class Resp:
+        def __enter__(self) -> Self:
+            return self
+
+        def __exit__(self, *a: object) -> None:
+            return None
+
+        def read(self) -> bytes:
+            return body or b""
+
+    def opener(_req: object, timeout: float = 0) -> Resp:  # noqa: ARG001
+        if error is not None:
+            raise error
+        return Resp()
+
+    return opener
+
+
+def test_fetch_tile_404_and_xml_return_none(monkeypatch: pytest.MonkeyPatch) -> None:
+    import email.message
+    import urllib.error
+    import urllib.request
+
+    from flood_nagoya import gsitiles
+
+    monkeypatch.setattr("flood_nagoya.gsitiles.time.sleep", lambda _s: None)
+    monkeypatch.setattr(
+        urllib.request,
+        "urlopen",
+        _fake_urlopen(error=urllib.error.HTTPError("u", 404, "nf", email.message.Message(), None)),
+    )
+    assert gsitiles.fetch_tile(1, 2) is None
+
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen(b"<?xml version='1.0'?><Error/>"))
+    assert gsitiles.fetch_tile(1, 2) is None
+
+
+def test_fetch_tile_retries_then_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    import urllib.error
+    import urllib.request
+
+    from flood_nagoya import gsitiles
+
+    monkeypatch.setattr("flood_nagoya.gsitiles.time.sleep", lambda _s: None)
+    calls = {"n": 0}
+
+    def opener(_req: object, timeout: float = 0) -> object:  # noqa: ARG001
+        calls["n"] += 1
+        raise urllib.error.URLError("boom")
+
+    monkeypatch.setattr(urllib.request, "urlopen", opener)
+    with pytest.raises(urllib.error.URLError):
+        gsitiles.fetch_tile(1, 2, retries=3)
+    assert calls["n"] == 3
+
+
+def test_download_bbox_writes_tiles_and_tombstones(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from flood_nagoya import gsitiles
+
+    monkeypatch.setattr(gsitiles, "RAW_DEM_DIR", tmp_path)
+    monkeypatch.setattr(gsitiles, "bbox_tile_range", lambda: (10, 10, 20, 21))
+    bodies = {(10, 20): b"1,2,3", (10, 21): None}
+    monkeypatch.setattr(gsitiles, "fetch_tile", lambda x, y: bodies[(x, y)])
+
+    stats = gsitiles.download_bbox(parallel=2)
+    assert stats == {"ok": 1, "missing": 1, "cached": 0}
+    assert (tmp_path / "10_20.txt").read_bytes() == b"1,2,3"
+    assert (tmp_path / "10_21.txt").read_bytes() == b""  # tombstone
+
+    # second run: both files exist → counted as cached, fetch not called
+    monkeypatch.setattr(gsitiles, "fetch_tile", lambda _x, _y: pytest.fail("should not fetch"))
+    stats2 = gsitiles.download_bbox(parallel=2)
+    assert stats2 == {"ok": 0, "missing": 0, "cached": 2}
+
+
+def test_load_mosaic_assembles_tiles(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from flood_nagoya.gsitiles import TILE_SIZE
+
+    monkeypatch.setattr(pipeline, "RAW_DEM_DIR", tmp_path)
+    monkeypatch.setattr(pipeline, "bbox_tile_range", lambda: (10, 10, 20, 21))
+    # one real tile + one tombstone (empty file = outside coverage)
+    rows = [[str(7.5) for _ in range(TILE_SIZE)] for _ in range(TILE_SIZE)]
+    (tmp_path / "10_20.txt").write_bytes(_encode_tile(rows))
+    (tmp_path / "10_21.txt").write_bytes(b"")
+
+    mosaic, valid = pipeline.load_mosaic()
+    assert mosaic.shape == (2 * TILE_SIZE, TILE_SIZE)
+    assert mosaic[0, 0] == pytest.approx(7.5)
+    assert valid[:TILE_SIZE].all()
+    assert not valid[TILE_SIZE:].any()  # tombstone tile stays void
+
+
+def test_write_dem_tiles_encodes_elevation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(pipeline, "WEB_TILE_DIR", tmp_path)
+    dem = np.full((256, 256), 12.34, dtype=np.float32)
+    pipeline.write_dem_tiles(dem, (10, 10, 20, 20))
+    tile = np.array(Image.open(tmp_path / "dem" / "10_20.png"))
+    cm = int(tile[0, 0, 0]) * 65536 + int(tile[0, 0, 1]) * 256 + int(tile[0, 0, 2])
+    assert cm == 1234  # 12.34 m → 1234 cm
+    assert int(tile[0, 0, 3]) == 255
+
+
+def test_build_end_to_end(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """build() runs the whole pipeline on a 1-tile range and writes meta.json."""
+    from flood_nagoya.gsitiles import TILE_SIZE
+
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    web = tmp_path / "web"
+    plateau = tmp_path / "plateau"
+    plateau.mkdir()
+    monkeypatch.setattr(pipeline, "RAW_DEM_DIR", raw)
+    monkeypatch.setattr(pipeline, "WEB_TILE_DIR", web / "tiles")
+    monkeypatch.setattr(pipeline, "WEB_DIR", web)
+    monkeypatch.setattr(pipeline, "WEB_META", web / "meta.json")
+    monkeypatch.setattr(pipeline, "PLATEAU_EXTRACT_DIR", plateau)
+    monkeypatch.setattr(pipeline, "bbox_tile_range", lambda: (10, 10, 20, 20))
+
+    # gentle slope so hydrology produces a stream
+    rows = [[f"{50.0 - c * 0.1:.2f}" for c in range(TILE_SIZE)] for _ in range(TILE_SIZE)]
+    (raw / "10_20.txt").write_bytes(_encode_tile(rows))
+
+    pipeline.build()
+
+    assert (web / "tiles" / "dem" / "10_20.png").exists()
+    assert (web / "overview" / "dem.png").exists()
+    assert (web / "overview" / "streams.png").exists()
+    meta = json.loads((web / "meta.json").read_text(encoding="utf-8"))
+    assert meta["tile_range"] == {"x0": 10, "x1": 10, "y0": 20, "y1": 20}
+    assert meta["overview_bldg"] is False
+    assert meta["overview"]["width"] == TILE_SIZE // pipeline.OVERVIEW_FACTOR
