@@ -1,0 +1,40 @@
+# VCS / tooling
+.git
+.gitignore
+.github
+.pytest_cache
+.ruff_cache
+.coverage
+cov.xml
+.hypothesis
+.env*
+.devcontainer
+
+# Virtual envs / tool installs
+.venv*
+venv*
+.pixi
+.task
+
+# Data — huge (raw GSI/PLATEAU downloads, ~12GB); never ship into the image.
+# The image serves the *prebuilt* web assets; rebuild them locally first
+# (`python -m flood_nagoya build`) so web/tiles, web/overview, web/meta.json exist.
+data
+
+# Analysis artifacts / notebooks
+notebooks
+models
+reports
+outputs
+paper
+slides
+references
+
+# Docs build output
+site
+
+# Bytecode / caches
+__pycache__
+*.pyc
+*.egg-info
+web/precomputed

@@ -1,132 +1,389 @@
 <!DOCTYPE html>
 <html lang="ja">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>名古屋市 雨水流出エミュレーター — GPU浅水方程式 × PLATEAU</title>
-<link rel="stylesheet" href="style.css">
-</head>
-<body>
-<canvas id="gl" aria-label="地図・シミュレーション表示"></canvas>
-<canvas id="gl3d" hidden aria-label="3D表示"></canvas>
-<div id="labels"></div>
-<div id="selbox" hidden><span id="selinfo"></span></div>
-<div id="north" title="北は上">N</div>
 
-<script type="importmap">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>名古屋市 雨水流出エミュレーター — FLOOD NAGOYA</title>
+  <link rel="stylesheet" href="style.css?v=24">
+</head>
+
+<body>
+  <canvas id="gl" aria-label="地図・シミュレーション表示"></canvas>
+  <canvas id="gl3d" hidden aria-label="3D表示 (three.js)"></canvas>
+  <canvas id="gldeck" hidden aria-label="3D表示 (deck.gl)"></canvas>
+  <div id="cesium3d" hidden aria-label="3D表示 (CesiumJS)"></div>
+  <canvas id="flow" hidden aria-label="流れ表示"></canvas>
+  <div id="labels"></div>
+  <div id="selbox" hidden><span id="selinfo"></span></div>
+  <div id="north" title="北は上">N</div>
+
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="i-waves" viewBox="0 0 24 24">
+        <path
+          d="M2 6c.6.5 1.2 1 2.5 1C7 7 7 5 9.5 5c2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1M2 12c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1M2 18c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 2.6 0 2.4 2 5 2 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1" />
+      </symbol>
+      <symbol id="i-map" viewBox="0 0 24 24">
+        <path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2z" />
+        <path d="M9 4v14M15 6v14" />
+      </symbol>
+      <symbol id="i-grid" viewBox="0 0 24 24">
+        <rect x="3" y="3" width="7" height="7" rx="1" />
+        <rect x="14" y="3" width="7" height="7" rx="1" />
+        <rect x="3" y="14" width="7" height="7" rx="1" />
+        <rect x="14" y="14" width="7" height="7" rx="1" />
+      </symbol>
+      <symbol id="i-mountain" viewBox="0 0 24 24">
+        <path d="m8 3 4 8 5-5 5 15H2L8 3z" />
+      </symbol>
+      <symbol id="i-camera" viewBox="0 0 24 24">
+        <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z" />
+        <circle cx="12" cy="13" r="3" />
+      </symbol>
+      <symbol id="i-help" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+        <path d="M12 17h.01" />
+      </symbol>
+      <symbol id="i-back" viewBox="0 0 24 24">
+        <path d="m12 19-7-7 7-7M19 12H5" />
+      </symbol>
+      <symbol id="i-rain" viewBox="0 0 24 24">
+        <path d="M4 14.9A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.2" />
+        <path d="M16 14v6M8 14v6M12 16v6" />
+      </symbol>
+      <symbol id="i-play" viewBox="0 0 24 24">
+        <path d="m7 4.5 12 7.5-12 7.5v-15z" />
+      </symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24">
+        <path d="M7 4h3v16H7zM14 4h3v16h-3z" />
+      </symbol>
+      <symbol id="i-reset" viewBox="0 0 24 24">
+        <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+        <path d="M3 3v5h5" />
+      </symbol>
+      <symbol id="i-chevron" viewBox="0 0 24 24">
+        <path d="m9 18 6-6-6-6" />
+      </symbol>
+      <symbol id="i-wind" viewBox="0 0 24 24">
+        <path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2M9.6 4.6A2 2 0 1 1 11 8H2M12.6 19.4A2 2 0 1 0 14 16H2" />
+      </symbol>
+      <symbol id="i-drops" viewBox="0 0 24 24">
+        <path d="M12.6 6.6A11 11 0 0 0 14 3c.5 2.5 2 4.9 4 6.5s3 3.5 3 5.5a7 7 0 0 1-11.9 5" />
+        <path
+          d="M7 20.3a4 4 0 0 1-4-4c0-1.2.6-2.3 1.7-3.2C5.9 12.2 6.7 10.8 7 9.3c.3 1.5 1.1 2.9 2.3 3.8 1.1.9 1.7 2 1.7 3.2a4 4 0 0 1-4 4z" />
+      </symbol>
+      <symbol id="i-building" viewBox="0 0 24 24">
+        <rect x="6" y="3" width="12" height="18" rx="1" />
+        <path d="M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2M3 21h18" />
+      </symbol>
+      <symbol id="i-droplet" viewBox="0 0 24 24">
+        <path
+          d="M12 22a7 7 0 0 0 7-7c0-2-1-3.9-3-5.5s-3.5-4-4-6.5c-.5 2.5-2 4.9-4 6.5C6 11.1 5 13 5 15a7 7 0 0 0 7 7z" />
+      </symbol>
+      <symbol id="i-globe" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+      </symbol>
+      <symbol id="i-stepback" viewBox="0 0 24 24">
+        <path d="m17 18-6-6 6-6M7 5v14" />
+      </symbol>
+      <symbol id="i-stepfwd" viewBox="0 0 24 24">
+        <path d="m7 18 6-6-6-6M17 5v14" />
+      </symbol>
+    </defs>
+  </svg>
+
+  <header id="topbar">
+    <div id="logo">
+      <span class="mark"><svg class="ic">
+          <use href="#i-waves" />
+        </svg></span>
+      <b>FLOOD NAGOYA</b>
+      <small>5m DEM × PLATEAU × GPU浅水方程式</small>
+    </div>
+    <nav id="viewtabs" role="tablist">
+      <button id="tabMap" class="on" role="tab"><svg class="ic">
+          <use href="#i-map" />
+        </svg><span>地図</span></button>
+      <button id="tab2d" role="tab"><svg class="ic">
+          <use href="#i-grid" />
+        </svg><span>2D</span></button>
+      <button id="tab3d" role="tab"><svg class="ic">
+          <use href="#i-mountain" />
+        </svg><span>3D</span></button>
+    </nav>
+  </header>
+
+  <div id="toolRail">
+    <button id="zoomIn" title="ズームイン" aria-label="ズームイン">＋</button>
+    <button id="zoomOut" title="ズームアウト" aria-label="ズームアウト">－</button>
+    <hr>
+    <div id="north" title="北は上">N</div>
+    <hr>
+    <button id="shotBtn" title="スクリーンショット" aria-label="スクリーンショット"><svg class="ic">
+        <use href="#i-camera" />
+      </svg></button>
+    <button id="helpBtn" title="つかいかた" aria-label="ヘルプ"><svg class="ic">
+        <use href="#i-help" />
+      </svg></button>
+  </div>
+
+  <aside id="mapPanel" class="panel">
+    <div class="panel-scroll">
+      <section>
+        <h3>シミュレーション範囲</h3>
+        <p class="hint">
+          地図上を<strong>ドラッグ</strong>で範囲選択 (最大 約17×16km)。<br>
+          <strong>ホイール</strong>でズーム、<strong>Space+ドラッグ</strong>で地図をパン。
+        </p>
+        <button id="cityBtn" class="btn accent wide">
+          <svg class="ic">
+            <use href="#i-globe" />
+          </svg>名古屋市全域で実行 (広域モード)
+        </button>
+        <p class="hint">
+          地図上を<strong>ドラッグ</strong>で範囲選択 (最大 約17×16km)。<br>
+          <strong>ホイール</strong>でズーム、<strong>Space+ドラッグ</strong>で地図をパン。
+        </p>
+      </section>
+      <section id="replaySection" hidden>
+        <h3>浸水リプレイ</h3>
+        <div id="replayList"></div>
+        <p class="hint" id="replayHint">実測降雨の事前計算結果を再生します。</p>
+      </section>
+      <section>
+        <h3>レイヤー</h3>
+        <label class="switch"><input type="checkbox" id="bldgLayerChk" checked><span class="sw"></span><span
+            class="sw-lbl"><svg class="ic">
+              <use href="#i-building" />
+            </svg>PLATEAU建物 (高さラスタ)</span></label>
+        <label class="switch"><input type="checkbox" id="streamLayerChk" checked><span class="sw"></span><span
+            class="sw-lbl"><svg class="ic">
+              <use href="#i-droplet" />
+            </svg>流路 (D8 集水)</span></label>
+        <p class="hint src">出典: 国土地理院 dem5a・航空写真(ort) / Project PLATEAU (2022 名古屋市)</p>
+      </section>
+      <section>
+        <h3>場所から選ぶ</h3>
+        <div id="locations"></div>
+      </section>
+    </div>
+  </aside>
+
+  <aside id="simPanel" class="panel" hidden>
+    <div class="panel-scroll">
+      <section class="row1">
+        <button id="backBtn" class="wide"><svg class="ic">
+            <use href="#i-back" />
+          </svg>地図へ戻る <kbd>Esc</kbd></button>
+      </section>
+      <section id="observedSection" hidden>
+        <h3 id="observedHead">降雨シナリオ (実測の再現)</h3>
+        <div id="observedScenarios"></div>
+      </section>
+
+      <section>
+        <h3>表示</h3>
+        <div class="seg" role="radiogroup" aria-label="表示モード">
+          <label class="seg-item"><input type="radio" name="disp" value="depth" checked><span>水深</span></label>
+          <label class="seg-item"><input type="radio" name="disp" value="speed"><span>流速</span></label>
+          <label class="seg-item"><input type="radio" name="disp" value="max"><span>最大浸水深</span></label>
+        </div>
+        <label class="switch" id="waveCtl"><input type="checkbox" id="waveToggle" checked><span class="sw"></span><span
+            class="sw-lbl"><svg class="ic">
+              <use href="#i-wind" />
+            </svg>水面の波のアニメーション</span></label>
+        <label class="switch" id="flowCtl"><input type="checkbox" id="flowToggle" checked><span class="sw"></span><span
+            class="sw-lbl"><svg class="ic">
+              <use href="#i-drops" />
+            </svg>流れの線表示 (パーティクル)</span></label>
+        <label class="switch" id="streamsSimRow"><input type="checkbox" id="streamsSimToggle" checked><span
+            class="sw"></span><span class="sw-lbl"><svg class="ic">
+              <use href="#i-map" />
+            </svg>分水域・流路 (D8集水)</span></label>
+        <p class="hint">水深は色で、流れは線の向きと速さ、青の帯は集水域の流路を表します。凡例は画面右下。</p>
+      </section>
+
+      <section>
+        <h3>条件</h3>
+        <div id="liveOnly">
+          <div class="ctl"><label>降雨強度 <output id="rainVal"></output></label>
+            <input type="range" id="rain" min="0" max="200" step="5" value="80" aria-label="降雨強度 (mm/h)">
+          </div>
+          <div class="ctl"><label>降雨継続時間 <output id="durationVal"></output></label>
+            <input type="range" id="duration" min="10" max="720" step="10" value="120" aria-label="降雨継続時間 (分)">
+          </div>
+          <div class="ctl"><label>下水道排水能力 <output id="drainVal"></output></label>
+            <input type="range" id="drain" min="0" max="80" step="1" value="25" aria-label="下水道排水能力 (mm/h)">
+          </div>
+          <div class="ctl"><label>地盤浸透 <output id="infilVal"></output></label>
+            <input type="range" id="infil" min="0" max="30" step="1" value="0.5" aria-label="地盤浸透 (mm/h)">
+          </div>
+          <div class="ctl"><label>粗度係数 Manning n <output id="manningVal"></output></label>
+            <input type="range" id="manning" min="0.010" max="0.060" step="0.002" value="0.020" aria-label="粗度係数">
+          </div>
+          <label class="switch"><input type="checkbox" id="bldgToggle" checked><span class="sw"></span><span
+              class="sw-lbl">PLATEAU建物を障害物として扱う</span></label>
+        </div>
+        <div class="ctl"><label>再生速度 <output id="speedVal"></output></label>
+          <input type="range" id="speed" min="1" max="120" step="1" value="30" aria-label="再生速度 (倍率)">
+        </div>
+        <div class="row">
+          <button id="pauseBtn" class="wide"><svg class="ic ic-pause">
+              <use href="#i-pause" />
+            </svg><svg class="ic ic-play">
+              <use href="#i-play" />
+            </svg><span id="pauseLabel">一時停止</span></button>
+          <button id="resetBtn" class="wide"><svg class="ic">
+              <use href="#i-reset" />
+            </svg>リセット</button>
+        </div>
+        <button id="btn3d" class="wide"><svg class="ic">
+            <use href="#i-mountain" />
+          </svg><span id="btn3dLabel">3D表示に切り替え</span></button>
+        <div id="view3dOpts" hidden>
+          <h3>3Dビュワー</h3>
+          <div class="seg" role="radiogroup" aria-label="3Dビュワー">
+            <label class="seg-item"><input type="radio" name="viewer3d" value="three"
+                checked><span>three.js</span></label>
+            <label class="seg-item"><input type="radio" name="viewer3d" value="deck"><span>deck.gl</span></label>
+            <label class="seg-item"><input type="radio" name="viewer3d" value="cesium"><span>CesiumJS</span></label>
+          </div>
+          <p class="hint" id="viewer3dHint">three.js: 軽量ローカル描画 / deck.gl: PLATEAU 3D Tiles (現寸建物) / CesiumJS: 地形に正確に沈む建物
+            (PLATEAU 3D Tiles + GSI地形)</p>
+          <button id="lite3dBtn" class="wide" title="deck.gl を 写真OFF・建物OFF・地形low・LOD1 で起動します"><svg class="ic">
+              <use href="#i-mountain" />
+            </svg>軽量3Dプリセット (deck.gl)</button>
+          <div class="seg" id="bldgSrcCtl" role="radiogroup" aria-label="deck.glの建物描画" hidden>
+            <label class="seg-item"><input type="radio" name="bldgsrc" value="plateau"
+                checked><span>PLATEAU実寸</span></label>
+            <label class="seg-item"><input type="radio" name="bldgsrc" value="simple"><span>簡易(ローカル)</span></label>
+          </div>
+          <label class="switch"><input type="checkbox" id="photo3dToggle" checked><span class="sw"></span><span
+              class="sw-lbl">航空写真を表示</span></label>
+          <label class="switch"><input type="checkbox" id="bldg3dToggle" checked><span class="sw"></span><span
+              class="sw-lbl">建物を表示</span></label>
+          <label class="switch" id="rainCtl"><input type="checkbox" id="rainToggle"><span class="sw"></span><span
+              class="sw-lbl"><svg class="ic">
+                <use href="#i-rain" />
+              </svg>雨を表示 (GPU)</span></label>
+          <label class="switch"><input type="checkbox" id="perfToggle" checked><span class="sw"></span><span
+              class="sw-lbl">パフォーマンス表示 (fps)</span></label>
+          <div class="ctl" id="exagCtl"><label>地形の垂直誇張 <output id="exagVal">1.0×</output></label>
+            <input type="range" id="exag" min="1" max="5" step="0.5" value="1" aria-label="地形の垂直誇張">
+          </div>
+          <p class="hint">ドラッグ=回転 / ホイール=ズーム / 右ドラッグ=移動</p>
+        </div>
+      </section>
+
+      <section>
+        <div class="resulthead">
+          <h3>計算結果</h3>
+          <div id="rainBadge" class="badge rain"><svg class="ic">
+              <use href="#i-rain" />
+            </svg><span id="rainBadgeLabel">降雨中</span></div>
+        </div>
+        <table id="stats">
+          <tr>
+            <th>経過時間</th>
+            <td id="statTime">00:00</td>
+          </tr>
+          <tr>
+            <th>降雨</th>
+            <td id="statRain">—</td>
+          </tr>
+          <tr>
+            <th>積算雨量</th>
+            <td id="statAcc">0 mm</td>
+          </tr>
+          <tr>
+            <th>貯留量</th>
+            <td id="statVol">—</td>
+          </tr>
+          <tr>
+            <th>氾濫面積 &gt;5cm</th>
+            <td id="statA5">—</td>
+          </tr>
+          <tr>
+            <th>氾濫面積 &gt;30cm</th>
+            <td id="statA30">—</td>
+          </tr>
+          <tr>
+            <th>氾濫面積 &gt;1m</th>
+            <td id="statA100">—</td>
+          </tr>
+          <tr>
+            <th>描画 fps</th>
+            <td id="statFps">—</td>
+          </tr>
+        </table>
+        <div class="statbar-wrap" title="水深5cm超の面積比">
+          <div id="statBar" class="statbar"></div>
+        </div>
+        <p class="hint">水深0.05m未満は表示しません。本結果は下水道網を陽に解かない
+          簡易アンサンブルであり、厳密な浸水予測ではありません。</p>
+      </section>
+    </div>
+  </aside>
+
+  <div id="legendWrap" hidden>
+    <div id="legend-depth" class="legend-card">
+      <span class="legend-name">水深</span>
+      <div class="legend"></div>
+      <div class="legend-ticks"><span>5cm</span><span>30cm</span><span>1m</span><span>2m</span><span>3m+</span></div>
+    </div>
+    <div id="legend-speed" class="legend-card" hidden>
+      <span class="legend-name">流速</span>
+      <div class="legend legend-speed"></div>
+      <div class="legend-ticks"><span>0.3m/s</span><span>1</span><span>3</span><span>10m/s+</span></div>
+    </div>
+    <div id="legend-max" class="legend-card" hidden>
+      <span class="legend-name">最大浸水深</span>
+      <div class="legend"></div>
+      <div class="legend-ticks"><span>5cm</span><span>30cm</span><span>1m</span><span>2m</span><span>3m+</span></div>
+      <p class="hint">計算開始以降の最大水深を記憶した浸水域</p>
+    </div>
+  </div>
+
+  <div id="toast" hidden role="status" aria-live="polite"></div>
+
+  <div id="tlbar" hidden>
+    <button id="tlPlay" title="再生/停止" aria-label="再生/停止">
+      <svg class="ic ic-play">
+        <use href="#i-play" />
+      </svg>
+      <svg class="ic ic-pause">
+        <use href="#i-pause" />
+      </svg>
+    </button>
+    <div class="tl-center">
+      <div class="tl-toprow">
+        <button id="tlBack" class="tl-mini" title="30秒戻る" aria-label="30秒戻る"><svg class="ic">
+            <use href="#i-stepback" />
+          </svg></button>
+        <span id="tlClock">00:00</span>
+        <button id="tlFwd" class="tl-mini" title="30秒進む" aria-label="30秒進む"><svg class="ic">
+            <use href="#i-stepfwd" />
+          </svg></button>
+      </div>
+      <div class="tl-track" id="tlTrack" title="ドラッグで時間移動">
+        <canvas id="tlSlider"></canvas>
+        <div id="tlKnob"></div>
+      </div>
+      <div class="tl-rainbar" id="tlRainBar">
+        <canvas id="tlRain"></canvas>
+        <div id="tlRainHover" hidden></div>
+      </div>
+      <div class="tl-scale"><span id="tlStart">0:00</span><span id="tlMid">—</span><span id="tlEndBar">—</span></div>
+    </div>
+  </div>
+
+  <script type="importmap">
 { "imports": { "three": "./lib/three.module.min.js", "three/addons/": "./lib/addons/" } }
 </script>
-
-<header>
-  <div id="title">
-    <strong>名古屋市 雨水流出エミュレーター</strong>
-    <span>国土地理院 5m DEM × PLATEAU建物 × GPU浅水方程式</span>
-  </div>
-</header>
-
-<aside id="mapPanel" class="panel">
-  <h2>つかいかた</h2>
-  <p class="hint">
-    地図上を<strong>ドラッグ</strong>でシミュレーション範囲を選択 (最大約13×12km)。<br>
-    <strong>ホイール</strong>でズーム、<strong>Space+ドラッグ</strong>で地図をパン。
-  </p>
-  <button id="cityBtn">🏙 名古屋市全域で実行 (広域モード)</button>
-  <h2>場所から選ぶ</h2>
-  <div id="locations"></div>
-  <h2>このエミュレーターについて</h2>
-  <p class="hint">
-    降雨が地表・街を流れる様子を、実標高 (国土地理院 数値標高モデル5m) と
-    PLATEAU建物 (約74万棟を流路障害物化) を用いたGPU浅水方程式で計算します。
-    下水道の排水は「排水能力」として近似しており、行政のハザードマップではありません。
-  </p>
-  <p class="hint src">
-    出典: 国土地理院 dem5a・航空写真(ort) / Project PLATEAU (2022 名古屋市)
-  </p>
-</aside>
-
-<aside id="simPanel" class="panel" hidden>
-  <div class="row">
-    <button id="backBtn" class="wide">← 地図へ戻る (Esc)</button>
-  </div>
-  <h2>降雨シナリオ</h2>
-  <div id="scenarios"></div>
-  <h2 id="observedHead" hidden>観測降雨 (実測の再現)</h2>
-  <div id="observedScenarios"></div>
-
-  <h2>表示</h2>
-  <div class="ctl disp">
-    <label class="chk"><input type="radio" name="disp" value="depth" checked> 水深</label>
-    <label class="chk"><input type="radio" name="disp" value="speed"> 流速</label>
-    <label class="chk"><input type="radio" name="disp" value="max"> 最大浸水深</label>
-  </div>
-  <div id="legend-depth">
-    <div class="legend"></div>
-    <div class="legend-ticks"><span>5cm</span><span>30cm</span><span>1m</span><span>3m+</span></div>
-  </div>
-  <div id="legend-speed" hidden>
-    <div class="legend legend-speed"></div>
-    <div class="legend-ticks"><span>0.3m/s</span><span>1</span><span>3</span><span>10m/s+</span></div>
-  </div>
-  <div id="legend-max" hidden>
-    <div class="legend"></div>
-    <div class="legend-ticks"><span>5cm</span><span>30cm</span><span>1m</span><span>3m+</span></div>
-    <p class="hint">計算開始以降の最大水深を記憶した浸水域</p>
-  </div>
-
-  <h2>条件</h2>
-  <div class="ctl"><label>降雨強度 <output id="rainVal"></output></label>
-    <input type="range" id="rain" min="0" max="200" step="5" value="80" aria-label="降雨強度 (mm/h)"></div>
-  <div class="ctl"><label>降雨継続時間 <output id="durationVal"></output></label>
-    <input type="range" id="duration" min="10" max="720" step="10" value="120" aria-label="降雨継続時間 (分)"></div>
-  <div class="ctl"><label>下水道排水能力 <output id="drainVal"></output></label>
-    <input type="range" id="drain" min="0" max="60" step="1" value="20" aria-label="下水道排水能力 (mm/h)"></div>
-  <div class="ctl"><label>地盤浸透 <output id="infilVal"></output></label>
-    <input type="range" id="infil" min="0" max="30" step="1" value="1" aria-label="地盤浸透 (mm/h)"></div>
-  <div class="ctl"><label>粗度係数 Manning n <output id="manningVal"></output></label>
-    <input type="range" id="manning" min="0.015" max="0.08" step="0.005" value="0.03" aria-label="粗度係数"></div>
-  <div class="ctl"><label>計算速度 <output id="speedVal"></output></label>
-    <input type="range" id="speed" min="1" max="120" step="1" value="30" aria-label="計算速度 (倍率)"></div>
-  <div class="ctl">
-    <label class="chk"><input type="checkbox" id="bldgToggle" checked> PLATEAU建物を障害物として扱う</label>
-  </div>
-
-  <div class="row">
-    <button id="pauseBtn" class="wide">⏸ 一時停止</button>
-    <button id="resetBtn" class="wide">↺ リセット</button>
-  </div>
-  <div class="row">
-    <button id="btn3d" class="wide">🏔 3D表示に切り替え</button>
-  </div>
-  <div class="row">
-    <button id="shotBtn" class="wide">📷 スクリーンショット保存</button>
-  </div>
-  <div class="ctl" id="view3dOpts" hidden>
-    <label class="chk"><input type="checkbox" id="photo3dToggle" checked> 航空写真を表示</label>
-    <label class="chk"><input type="checkbox" id="bldg3dToggle" checked> 建物を表示</label>
-    <p class="hint">ドラッグ=回転 / ホイール=ズーム / 右ドラッグ=移動</p>
-  </div>
-
-  <h2>計算結果</h2>
-  <div id="rainBadge" class="badge rain">降雨中</div>
-  <table id="stats">
-    <tr><th>経過時間</th><td id="statTime">00:00</td></tr>
-    <tr><th>降雨</th><td id="statRain">—</td></tr>
-    <tr><th>積算雨量</th><td id="statAcc">0 mm</td></tr>
-    <tr><th>貯留量</th><td id="statVol">—</td></tr>
-    <tr><th>氾濫面積 &gt;5cm</th><td id="statA5">—</td></tr>
-    <tr><th>氾濫面積 &gt;30cm</th><td id="statA30">—</td></tr>
-    <tr><th>氾濫面積 &gt;1m</th><td id="statA100">—</td></tr>
-    <tr><th>描画 fps</th><td id="statFps">—</td></tr>
-  </table>
-  <div class="statbar-wrap" title="水深5cm超の面積比">
-    <div id="statBar" class="statbar"></div>
-  </div>
-
-  <p class="hint">水深0.05m未満は表示しません。本結果は下水道網を陽に解かない
-  簡易アンサンブルであり、厳密な浸水予測ではありません。</p>
-</aside>
-
-<div id="toast" hidden role="status" aria-live="polite"></div>
-<script type="module" src="app.js?v=19p"></script>
+  <script type="module" src="app.js?v=27"></script>
 </body>
+
 </html>

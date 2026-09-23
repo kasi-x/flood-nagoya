@@ -24,9 +24,6 @@ classifiers = [
 dynamic = [ "version" ]
 
 dependencies = [
-    "duckdb",
-    "pyarrow",
-    "polars>=0.20.15",
     "numpy>=2.4.6",
     "pillow>=12.3.0",
     "scipy>=1.17.1",
@@ -169,7 +166,7 @@ skip_covered = true
 skip_empty = true
 
 [tool.typos.default]
-extend-ignore-words-re = ['\b[A-Z]{3}\b', 'lod', 'LOD', 'iy'] # CityGML LOD, ループ変数 iy
+extend-ignore-words-re = ['\b[A-Z]{3}\b', 'lod', 'LOD', 'Lod', 'iy'] # CityGML LOD, ループ変数 iy
 extend-ignore-identifiers-re = ['\b[A-Z]{3}\b']
 
 [tool.typos.files]
@@ -185,7 +182,7 @@ min_confidence = 80
 # DEP004 pytest: pytest を import するのは tests/（fixture / raises /
 # MonkeyPatch）だけであり、正当な dev 専用利用。mcp_server のテストも同じ
 # ルールに触れるため、エンジン横断で無視する。
-per_rule_ignores = "DEP002=alembic|asgi-correlation-id|asyncpg|click|fastapi|httpx|pydantic|pydantic-settings|pendulum|prometheus-client|rich|slowapi|sqlalchemy|loguru|picologging|typer|uvicorn|duckdb|ipykernel|marimo|matplotlib|nbclient|nbstripout|openai|plotly|polars|pyarrow|seaborn|wandb,DEP003=flood_nagoya|requests,DEP004=pytest"
+per_rule_ignores = "DEP002=alembic|asgi-correlation-id|asyncpg|click|fastapi|httpx|pydantic|pydantic-settings|pendulum|prometheus-client|rich|slowapi|sqlalchemy|loguru|picologging|typer|uvicorn|ipykernel|marimo|matplotlib|nbclient|nbstripout|openai|plotly|seaborn|wandb,DEP003=flood_nagoya|requests,DEP004=pytest"
 # tasks.py/duties.py: root-level dev script, not project source -- deptry
 # would otherwise flag invoke/duty as DEP004 (dev-only dep imported by "source")
 exclude = ["tools", ".venv", ".pixi", ".task", "build", "dist"]
@@ -415,4 +412,9 @@ suppress-none-returning = false
     "I001",   # unsorted-imports  CONTEXT: test_app.py の env → import 構造で isort は満足できない
     "E501",   # line-too-long  CONTEXT: test_qa.py の assert メッセージ
     "PLR0912",# too-many-branches  CONTEXT: test_qa.py の依存宣言チェックは複数分岐が自然
+]
+
+"src/flood_nagoya/precompute.py" = [
+    "PLR0913", # too-many-arguments  CONTEXT: 物理カーネル (step/_face_flux) は配列と係数の引数が多く自然
+    "PLR0917", # too-many-positional-arguments  CONTEXT: 同上
 ]

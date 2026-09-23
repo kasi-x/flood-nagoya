@@ -20,8 +20,10 @@ class _NoCacheHandler(http.server.SimpleHTTPRequestHandler):
 
 
 def serve(host: str = "127.0.0.1", port: int = 8642, *, open_browser: bool = False) -> None:
-    if not (WEB_DIR / "index.html").exists():
-        msg = f"{WEB_DIR}/index.html not found — run the build first"
+    if not (WEB_DIR / "index.html").exists() or not (WEB_DIR / "meta.json").exists():
+        msg = (
+            f"{WEB_DIR} に index.html / meta.json がありません — 先に `python -m flood_nagoya build` を実行してください"
+        )
         raise SystemExit(msg)
     handler = partial(_NoCacheHandler, directory=str(WEB_DIR))
     http.server.ThreadingHTTPServer.allow_reuse_address = True

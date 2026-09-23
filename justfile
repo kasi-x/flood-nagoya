@@ -7,11 +7,13 @@ default:
 lint:
     uv run --locked ruff format --check . && uv run --locked ruff check .
 
-# Auto-fix formatting, lint and typos (run before committing)
+# Auto-fix formatting and lint (run before committing).
+# typos は自動書き換えしない (-w は識別子まで書き換える危険があるため)。
+# 実際のタイポは `just check` の typos で検出され、手動で直す。
 
 fix:
     uv run --locked ruff check --fix .
-    uv run --locked ruff format . && uv run --locked typos -w .
+    uv run --locked ruff format .
 
 # Run basedpyright + pyrefly + static analysis
 
@@ -75,3 +77,89 @@ paper-api:
 # Run all quality checks
 
 check: lint type-check test
+
+# --- App commands ---------------------------------------------------------
+
+# Install the environment (first time / after pyproject.toml changes)
+
+sync:
+    uv sync --locked
+
+# Download GSI dem5a tiles for the Nagoya study area (~46MB, cached)
+
+dem:
+    uv run --locked python -m flood_nagoya download-dem
+
+# Download PLATEAU CityGML (2.8GB), extract building GML, rasterize heights
+
+plateau:
+    mkdir -p data/raw/plateau
+    curl -o data/raw/plateau/23100_nagoya-shi_city_2022_citygml_4_op.zip \
+      "https://assets.cms.plateau.reearth.io/assets/79/e43a02-06b6-40c2-ae97-51eba1b4297b/23100_nagoya-shi_city_2022_citygml_4_op.zip"
+    unzip -o -q data/raw/plateau/23100_nagoya-shi_city_2022_citygml_4_op.zip \
+      "udx/bldg/*" -d data/raw/plateau/extracted/
+    uv run --locked python -c "from flood_nagoya.plateau_buildings import rasterize_buildings; rasterize_buildings()"
+
+# Generate web assets (tiles, overview, meta.json) from data/raw
+
+build:
+    uv run --locked python -m flood_nagoya build
+
+# Serve the web app (http://127.0.0.1:8642/)
+
+serve:
+    uv run --locked python -m flood_nagoya serve
+
+# Precompute the Sakai flood replay for the web app (~10 min)
+
+precompute:
+    uv run --locked python -m flood_nagoya precompute
+
+# Expose the local app via a Cloudflare quick tunnel (needs `just serve`
+# running and the cloudflared binary; the public URL is ephemeral —
+# a new one is printed on every run)
+
+tunnel:
+    cloudflared tunnel --url http://localhost:8642
+
+# AMeDAS observed-rain hyetograph scenario for DATE (YYYY-MM-DD)
+
+rain date:
+    uv run --locked python -m flood_nagoya rain-scenario --date {{date}}
+
+# XRAIN radar spatial-rain scenario for DATE (last ~8 days only)
+
+xrain date:
+    uv run --locked python -m flood_nagoya xrain-scenario --date {{date}}
+
+# MSM + AMeDAS-calibrated spatial-rain scenario for DATE
+
+msm date:
+    uv run --locked python -m flood_nagoya msm-scenario --date {{date}}
+
+# Historical disaster observed-rain scenarios (hagibis-2019, meiyu-2023, july-2023)
+
+historical event:
+    uv run --locked python -m flood_nagoya historical-scenario {{event}}
+
+# All historical disaster observed-rain scenarios
+
+historical-all:
+    uv run --locked python -m flood_nagoya historical-scenarios
+
+# Precompute with a raised sea level (storm surge / high tide) [m]
+
+precompute-surge sea_level:
+    uv run --locked python -m flood_nagoya precompute --sea-level {{sea_level}}
+
+# Precompute with the simplified underground inundation model
+
+precompute-underground:
+    uv run --locked python -m flood_nagoya precompute --underground
+
+# Full data pipeline: DEM + buildings + web assets (after `just sync`)
+
+setup:
+    @just dem
+    @just plateau
+    @just build

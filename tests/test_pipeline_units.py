@@ -24,6 +24,7 @@ from flood_nagoya.hydro import (
     flow_accumulation,
 )
 from flood_nagoya.pipeline import build_overview, elevation_to_rgba, fill_voids
+from PIL import Image
 
 
 def test_tile_math_roundtrip() -> None:
@@ -113,6 +114,20 @@ def test_build_overview_shape_and_m_per_px(tmp_path: Path, monkeypatch: pytest.M
     assert (tmp_path / "overview" / "dem.png").exists()
 
 
+def test_build_overview_bldg_tile(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """build_overview writes a building overlay when heights are provided."""
+    dem = np.full((8, 12), 10.0, dtype=np.float32)
+    sea = np.zeros((8, 12), dtype=bool)
+    heights = np.ones((8, 12), dtype=np.int16) * 500  # 5m in cm
+    monkeypatch.setattr(pipeline, "WEB_DIR", tmp_path)
+    build_overview(dem, sea, heights)
+    p = tmp_path / "overview" / "bldg.png"
+    assert p.exists()
+    img = np.array(Image.open(p))
+    assert img.shape[:2] == (2, 3)  # overview factor 4
+    assert int(img[0, 0, 0]) * 256 + int(img[0, 0, 1]) == 500  # max-pool preserves height
+
+
 def test_drainage_network_mask_marks_valley_stream() -> None:
     # V-shaped valley: the bottom row must accumulate the hillsides
     dem = np.fromfunction(lambda y, x: abs(x - 2.0) + y * 0.5, (5, 5))
@@ -120,3 +135,26 @@ def test_drainage_network_mask_marks_valley_stream() -> None:
     # the valley centreline collects the hillsides top-to-bottom
     assert bool(mask[0, 2])
     assert acc[0, 2] > acc[0, 0]
+
+
+def test_write_bldg_tiles_order_and_clamp(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from PIL import Image
+
+    from flood_nagoya.pipeline import write_bldg_tiles
+
+    monkeypatch.setattr(pipeline, "WEB_TILE_DIR", tmp_path)
+    tr = (10, 11, 20, 21)  # (x0, x1, y0, y1): 2x2 tiles = 512x512 cells
+    heights = np.zeros((512, 512), dtype=np.int16)
+    heights[5, 5] = 303  # 3.03 m
+    heights[300, 300] = -16860  # int16 overflow garbage -> must clamp to 0
+    write_bldg_tiles((512, 512), heights, tr)
+    # tile naming follows x0..x1 by y0..y1 (regression: swapped unpacking
+    # made these loops empty and silently wrote nothing)
+    assert (tmp_path / "bldg" / "10_20.png").exists()
+    assert (tmp_path / "bldg" / "11_21.png").exists()
+    tile00 = np.array(Image.open(tmp_path / "bldg" / "10_20.png"))
+    h = int(tile00[5, 5, 0]) * 256 + int(tile00[5, 5, 1])
+    assert h == 303
+    tile11 = np.array(Image.open(tmp_path / "bldg" / "11_21.png"))
+    g = int(tile11[44, 44, 0]) * 256 + int(tile11[44, 44, 1])
+    assert g == 0, "negative height must not wrap into a huge unsigned value"

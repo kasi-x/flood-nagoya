@@ -1,0 +1,18 @@
+services:
+  app:
+    build:
+      context: .
+      target: runtime
+    ports:
+      - "8642:8642"
+    volumes:
+      # Bind-mount ./web so locally-rebuilt assets (tiles, overview, etc.)
+      # are served immediately without rebuilding the Docker image.
+      - ./web:/srv/flood-nagoya-web:ro
+    healthcheck:
+      test: [ "CMD", "python", "-c",
+        "import http.client; c=http.client.HTTPConnection('127.0.0.1',8642); c.request('GET','/'); r=c.getresponse(); assert r.status in (200,304); r.close(); c.close()" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s

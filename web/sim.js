@@ -107,6 +107,9 @@ uniform float uTime;
 uniform float uDx;
 uniform int uBldgOn;
 uniform int uMapMode;         // 1: sea/streams styling for the overview
+uniform int uStreamsOn;       // 1: draw the watershed/streams overlay in sim modes
+uniform float uWaves;
+uniform vec2 uTexel;          // 1/grid, for depth-field gradient
 out vec4 fragColor;
 
 float elevAt(vec2 gp){
@@ -119,12 +122,13 @@ float bldgAt(vec2 gp){
 }
 
 vec3 depthRamp(float d){
-  vec3 c = vec3(0.85, 0.93, 1.0);
-  c = mix(c, vec3(0.45, 0.73, 0.93), smoothstep(0.03, 0.12, d));
-  c = mix(c, vec3(0.24, 0.52, 0.86), smoothstep(0.12, 0.30, d));
-  c = mix(c, vec3(0.13, 0.32, 0.72), smoothstep(0.30, 0.70, d));
-  c = mix(c, vec3(0.24, 0.17, 0.55), smoothstep(0.70, 1.50, d));
-  c = mix(c, vec3(0.10, 0.06, 0.28), smoothstep(1.50, 3.50, d));
+  // PLATEAU風アクア→ブルー→インディゴ: 深いほど暗く沈む
+  vec3 c = vec3(0.82, 0.95, 1.00);
+  c = mix(c, vec3(0.33, 0.71, 0.95), smoothstep(0.03, 0.20, d));
+  c = mix(c, vec3(0.18, 0.45, 0.91), smoothstep(0.20, 0.50, d));
+  c = mix(c, vec3(0.16, 0.29, 0.81), smoothstep(0.50, 1.00, d));
+  c = mix(c, vec3(0.26, 0.21, 0.72), smoothstep(1.00, 2.00, d));
+  c = mix(c, vec3(0.36, 0.18, 0.62), smoothstep(2.00, 3.50, d));
   return c;
 }
 
@@ -132,7 +136,7 @@ void main(){
   vec2 gp = (gl_FragCoord.xy - uCanvas*0.5)/uView.z + uView.xy;
   vec2 uv = (gp + 0.5)/uGrid;
   if(any(lessThan(gp, vec2(0.0))) || any(greaterThanEqual(gp, uGrid))){
-    fragColor = vec4(0.055, 0.066, 0.086, 1.0); return;   // outside grid
+    fragColor = vec4(0.875, 0.906, 0.925, 1.0); return;   // outside grid
   }
   vec4 terr = texture(uTerrain, uv);
   float z = (terr.r*65536.0 + terr.g*256.0 + terr.b)/100.0;
@@ -160,10 +164,13 @@ void main(){
     float bn = clamp(b/30.0, 0.0, 1.0);
     col = mix(vec3(0.30, 0.31, 0.34), vec3(0.44, 0.45, 0.50), bn) * (shade*0.55 + 0.45);
   }
-  // drainage network overlay (map)
+  // drainage network / watershed overlay (map + sim)
   if(uMapMode == 1){
     float st = texture(uStreams, uv).r;
     col = mix(col, vec3(0.25, 0.55, 0.85), smoothstep(0.15, 0.9, st)*0.85);
+  } else if(uStreamsOn == 1){
+    float st = texture(uStreams, uv).r;
+    col = mix(col, vec3(0.15, 0.42, 0.66), smoothstep(0.2, 0.9, st)*0.8);
   }
 
   float alpha = 1.0;
@@ -174,20 +181,44 @@ void main(){
     if(show > 0.008 && uMode != 2){
       float d = show;
       vec3 wc = depthRamp(d);
-      float a = clamp(d*5.0, 0.10, 0.94);
-      if(uMode == 3) a *= 0.75;
-      // moving shimmer where water is deep enough to flow
+      // transparency scales with depth: shallow water shows the ground through
+      float a = clamp(0.18 + d*1.30, 0.18, 0.95);
+      if(uMode == 3) a *= 0.78;
       vec4 s2 = texture(uState, uv);
       float sp = length(s2.yz)/max(h, 0.02);
-      float shimmer = 0.92 + 0.08*sin(uTime*2.4 + (gp.x+gp.y)*0.55 + sp*6.0);
+      // surface normal from the depth field -> relief + sun glint
+      float gx = texture(uState, uv + vec2(uTexel.x, 0.0)).x - texture(uState, uv - vec2(uTexel.x, 0.0)).x;
+      float gy = texture(uState, uv + vec2(0.0, uTexel.y)).x - texture(uState, uv - vec2(0.0, uTexel.y)).x;
+      vec3 wn = normalize(vec3(-gx*7.0, -gy*7.0, 1.0));
+      float glint = pow(clamp(dot(wn, normalize(vec3(-0.45, -0.55, 0.70))), 0.0, 1.0), 14.0);
+      float shimmer = 0.94 + 0.06*sin(uTime*2.4 + (gp.x+gp.y)*0.55 + sp*6.0);
+      // flow tint: fast water warms toward amber
+      wc = mix(wc, vec3(1.0, 0.70, 0.30), uWaves*smoothstep(0.35, 2.5, sp)*0.40);
+      // travelling waves: two octaves, phase follows the local flow direction
+      float wv = sin(uTime*2.2 + dot(s2.yz + vec2(1e-4), gp*0.55))*0.5
+               + sin(uTime*3.3 + (gp.x*0.45 - gp.y*0.35) + sp*5.0)*0.5;
+      wc *= 1.0 + uWaves*0.15*wv;
+      // whitewater where the flow is fast
+      float foam = uWaves*smoothstep(0.9, 3.0, sp)*smoothstep(0.05, 0.40, d);
+      wc = mix(wc, vec3(0.97, 0.98, 1.0), foam*0.55*(0.6+0.4*wv));
+      // sun glint, strongest on calm water
+      wc += vec3(1.0, 0.98, 0.90)*glint*(1.0-foam)*0.35;
       col = mix(col, wc*shimmer, a);
+    } else if(h > 0.0008 && uMode != 2){
+      // damp ground: rain-soaked surfaces before the 5cm display threshold
+      col = mix(col, col*vec3(0.74, 0.82, 0.90), 0.55);
     }
     if(uMode == 2){
       float sp = length(s.yz)/max(h, 0.02);
       if(h > 0.02 && sp > 0.05){
+        // continuous ramp: calm green -> amber -> red -> violet, with waves
         float t = clamp(log(sp)/log(30.0), 0.0, 1.0);
-        vec3 sc = mix(vec3(0.9,0.95,0.6), vec3(0.95,0.35,0.15), smoothstep(0.35, 0.8, t));
-        sc = mix(sc, vec3(0.85,0.1,0.35), smoothstep(0.8, 1.0, t));
+        vec3 sc = mix(vec3(0.55,0.85,0.30), vec3(0.95,0.75,0.25), smoothstep(0.0, 0.35, t));
+        sc = mix(sc, vec3(0.95,0.45,0.22), smoothstep(0.35, 0.65, t));
+        sc = mix(sc, vec3(0.85,0.25,0.45), smoothstep(0.65, 0.85, t));
+        sc = mix(sc, vec3(0.55,0.25,0.85), smoothstep(0.85, 1.0, t));
+        float wv = sin(uTime*3.0 + dot(s.yz + vec2(1e-4), gp*0.7));
+        sc *= 1.0 + uWaves*0.14*wv;
         col = mix(col, sc, clamp(h*5.0, 0.0, 0.85));
       }
     }
@@ -274,7 +305,7 @@ export class FloodSim {
     this.reducePrg = program(gl, REDUCE_FRAG);
     this.vao = gl.createVertexArray();
     this.view = { x: 0, y: 0, z: 1 };   // grid px: center + scale (screen px per cell)
-    this.params = { rain: 0, drain: 15, infil: 1, manning: 0.03, bldgOn: 1 };
+    this.params = { rain: 0, drain: 15, infil: 1, manning: 0.03, bldgOn: 1, waves: 1 };
     this.time = 0;                      // simulated seconds
     this.rainLeft = 0;                  // seconds of rain remaining
     this.rainSeries = null;             // observed hyetograph [[t_sec, mm_h], ...]
@@ -282,6 +313,7 @@ export class FloodSim {
     this.spatialRain = false;           // drive rain from uRainTex frames
     this.rainTex = null;                // current observed-rain frame texture
     this.rainXForm = [1, 1, 0, 0];      // frag px -> frame uv
+    this.streamsOverlay = false;        // 分水域オーバーレイ (リプレイ2D用)
     this.paused = true;
     this.volume0 = 0;
     this.stats = null;
@@ -334,15 +366,6 @@ export class FloodSim {
   startScenario(rainMMh, durationMin) {
     this.params.rain = rainMMh;
     this.rainSeries = null;
-    this.durationMin = durationMin;
-    this.rainLeft = durationMin * 60;
-    this.time = 0;
-    this.paused = false;
-  }
-
-  startScenario(rainMMh, durationMin) {
-    this.params.rain = rainMMh;
-    this.rainSeries = null;
     this.spatialRain = false;
     this.durationMin = durationMin;
     this.rainLeft = durationMin * 60;
@@ -357,6 +380,19 @@ export class FloodSim {
     this.rainLeft = this.rainEnd;
     this.time = 0;
     this.paused = false;
+  }
+
+  /**
+   * Replace the state texture with a precomputed frame (playback mode).
+   * buf: Float32Array(W*H*4), row 0 = south, x=h y=qE z=qS w=max depth.
+   */
+  setStateFrame(buf) {
+    const gl = this.gl;
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    for (let i = 0; i < 2; i++) {
+      gl.bindTexture(gl.TEXTURE_2D, this.state[i]);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, this.W, this.H, 0, gl.RGBA, gl.FLOAT, buf);
+    }
   }
 
   /**
@@ -454,7 +490,7 @@ export class FloodSim {
     const c = this.canvas;
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, c.width, c.height);
-    gl.clearColor(0.055, 0.066, 0.086, 1.0);
+    gl.clearColor(0.875, 0.906, 0.925, 1.0);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(this.renderPrg.p);
     const u = this.renderPrg.u;
@@ -474,8 +510,61 @@ export class FloodSim {
     gl.uniform1f(u.uDx, this.dx);
     gl.uniform1i(u.uBldgOn, this.params.bldgOn > 0.5 ? 1 : 0);
     gl.uniform1i(u.uMapMode, this.mapMode ? 1 : 0);
+    gl.uniform1i(u.uStreamsOn, (!this.mapMode && this.streamsOverlay && this.streamsTex) ? 1 : 0);
+    gl.uniform1f(u.uWaves, this.mapMode ? 0 : (this.params.waves ?? 1));
+    if (u.uTexel) gl.uniform2f(u.uTexel, 1 / Math.max(this.W, 1), 1 / Math.max(this.H, 1));
     gl.bindVertexArray(this.vao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
+  }
+
+  /** Scenario end time in model seconds (timeline axis). */
+  endTime() {
+    if (this.rainSeries) return this.rainEnd;
+    return (this.durationMin || 0) * 60;
+  }
+
+  /** Step until `target` model time, at most `maxSteps` steps. */
+  advanceTo(target, maxSteps) {
+    let n = 0;
+    while (this.time < target && n < maxSteps) {
+      this.step(0.05);
+      n++;
+    }
+    return n;
+  }
+
+  /** Compact checkpoint: depth + max depth in mm (Uint16, 1/8 of float32). */
+  captureCheckpoint() {
+    const gl = this.gl;
+    const n = this.W * this.H;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo[this.flip]);
+    const buf = new Float32Array(n * 4);
+    gl.readPixels(0, 0, this.W, this.H, gl.RGBA, gl.FLOAT, buf);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    const packed = new Uint16Array(n * 2);
+    for (let i = 0; i < n; i++) {
+      packed[i * 2] = Math.min(65535, Math.max(0, Math.round(buf[i * 4] * 1000)));
+      packed[i * 2 + 1] = Math.min(65535, Math.max(0, Math.round(buf[i * 4 + 3] * 1000)));
+    }
+    return packed;
+  }
+
+  /** Restore a checkpoint at model time `t` (flux restarts from zero). */
+  restoreCheckpoint(packed, t) {
+    const gl = this.gl;
+    const n = this.W * this.H;
+    const buf = new Float32Array(n * 4);
+    for (let i = 0; i < n; i++) {
+      buf[i * 4] = packed[i * 2] / 1000;
+      buf[i * 4 + 3] = packed[i * 2 + 1] / 1000;
+    }
+    for (let i = 0; i < 2; i++) {
+      gl.bindTexture(gl.TEXTURE_2D, this.state[i]);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, this.W, this.H, 0, gl.RGBA, gl.FLOAT, buf);
+    }
+    this.flip = 0;
+    this.time = t;
+    this.stats = null;
   }
 
   /** Full-state readback for the 3D view (Float32Array W*H*4). */

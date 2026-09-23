@@ -83,6 +83,14 @@ def parse_dem_txt(payload: bytes) -> np.ndarray:
     if len(rows) != TILE_SIZE:
         msg = f"expected {TILE_SIZE} rows, got {len(rows)}"
         raise ValueError(msg)
+    # Fast path (the overwhelming majority of tiles): comma-separated plain
+    # decimal grid, no "e" void markers. One C-level split + one bulk float
+    # conversion instead of 256 per-row Python passes. Falls back to the
+    # strict per-row parser on any anomaly.
+    if b"e" not in payload and all(len(row.split(",")) == TILE_SIZE for row in rows):
+        flat = np.array(text.replace(",", " ").split(), dtype=np.float32)
+        if flat.size == TILE_SIZE * TILE_SIZE:
+            return flat.reshape(TILE_SIZE, TILE_SIZE)
     out = np.full((TILE_SIZE, TILE_SIZE), np.nan, dtype=np.float32)
     for r, row in enumerate(rows):
         values = row.split(",")

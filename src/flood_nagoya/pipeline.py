@@ -11,7 +11,9 @@ Pipeline (``python -m flood_nagoya build``):
 
 from __future__ import annotations
 
+import concurrent.futures as cf
 import json
+import os
 import time
 
 import numpy as np
@@ -77,24 +79,62 @@ def fill_voids(mosaic: np.ndarray, valid: np.ndarray) -> tuple[np.ndarray, np.nd
     out[sea] = 0.0
     holes = void & ~sea
     print(f"voids: sea {int(sea.sum())} px, inland holes {int(holes.sum())} px")
-
-    arr = np.where(holes, 0.0, np.where(valid, mosaic, 0.0))
-    weight = (valid | ~holes).astype(np.float64)
-    filled = holes.copy()
-    for it in range(500):
-        if not holes.any():
-            break
-        blur_v: npt.NDArray[np.float64] = ndimage.uniform_filter(arr, size=3)
-        blur_w: npt.NDArray[np.float64] = ndimage.uniform_filter(weight, size=3)
-        fill_now = holes & (blur_w > 1e-6)
-        arr[fill_now] = blur_v[fill_now] / blur_w[fill_now]
-        weight[fill_now] = 1.0
-        holes[fill_now] = False
-        if it > 0 and it % 50 == 0:
-            print(f"  hole fill iter {it}, remaining {int(holes.sum())}")
-    out[filled] = arr[filled].astype(np.float32)  # write the infill back
-    out[holes] = 0.0  # anything unreachable (should be none)
+    if holes.any():
+        _diffuse_holes(out, valid, holes)
     return out.astype(np.float32), sea
+
+
+def _diffuse_holes(
+    out: np.ndarray,
+    valid: np.ndarray,
+    holes: np.ndarray,
+) -> None:
+    """Lockstep 3-by-3 mean diffusion restricted to the remaining-hole bbox.
+
+    Bit-for-bit identical to filtering the whole grid every iteration: each
+    unfilled hole pixel's 3-by-3 window lies inside the bounding box of the
+    remaining holes plus a one-pixel ring, and where the box is clamped at
+    the grid edge the crop boundary reflects exactly like the full grid.
+    The crop shrinks as rings are filled, so the work is O(bbox area) per
+    iteration instead of O(full grid area).
+    """
+    arr = np.where(valid, out, 0.0)
+    weight = (~holes).astype(np.float64)
+    was_holes = holes.copy()
+    ys, xs = np.nonzero(holes)
+    y0 = max(int(ys.min()) - 1, 0)
+    y1 = min(int(ys.max()) + 2, out.shape[0])
+    x0 = max(int(xs.min()) - 1, 0)
+    x1 = min(int(xs.max()) + 2, out.shape[1])
+    for _ in range(500):
+        hview = holes[y0:y1, x0:x1]
+        if not hview.any():
+            break
+        av = arr[y0:y1, x0:x1]
+        wv = weight[y0:y1, x0:x1]
+        blur_v: npt.NDArray[np.float64] = ndimage.uniform_filter(av, size=3)
+        blur_w: npt.NDArray[np.float64] = ndimage.uniform_filter(wv, size=3)
+        fill_now = hview & (blur_w > 1e-6)
+        av[fill_now] = blur_v[fill_now] / blur_w[fill_now]
+        wv[fill_now] = 1.0
+        hview[fill_now] = False
+        rem = np.argwhere(hview)
+        if rem.size == 0:
+            break
+        new_y0 = y0 + int(rem[:, 0].min()) - 1
+        new_y1 = y0 + int(rem[:, 0].max()) + 2
+        new_x0 = x0 + int(rem[:, 1].min()) - 1
+        new_x1 = x0 + int(rem[:, 1].max()) + 2
+        y0 = max(new_y0, 0)
+        y1 = min(new_y1, out.shape[0])
+        x0 = max(new_x0, 0)
+        x1 = min(new_x1, out.shape[1])
+    filled = was_holes & (weight > 0.0)
+    out[filled] = arr[filled].astype(np.float32)
+    leftover = was_holes & ~filled
+    out[leftover] = 0.0
+    if leftover.any():
+        print(f"  hole fill left {int(leftover.sum())} px unfilled (set to 0)")
 
 
 def elevation_to_rgba(elev: np.ndarray) -> Image.Image:
@@ -110,38 +150,58 @@ def elevation_to_rgba(elev: np.ndarray) -> Image.Image:
 
 
 def write_dem_tiles(dem: np.ndarray, tile_range: tuple[int, int, int, int]) -> None:
-    x0, y0, x1, y1 = tile_range
+    x0, x1, y0, y1 = tile_range
     out_dir = WEB_TILE_DIR / "dem"
     out_dir.mkdir(parents=True, exist_ok=True)
-    for x in range(x0, x1 + 1):
-        for y in range(y0, y1 + 1):
-            ry = (y - y0) * 256
-            rx = (x - x0) * 256
-            tile = dem[ry : ry + 256, rx : rx + 256]
-            elevation_to_rgba(tile).save(out_dir / f"{x}_{y}.png", optimize=False, compress_level=6)
-        if (x - x0) % 8 == 7:
-            print(f"  dem tiles {x - x0 + 1}/{x1 + 1 - x0} columns")
+    jobs = [(x, y) for x in range(x0, x1 + 1) for y in range(y0, y1 + 1)]
+
+    def save(job: tuple[int, int]) -> None:
+        x, y = job
+        ry = (y - y0) * 256
+        rx = (x - x0) * 256
+        elevation_to_rgba(dem[ry : ry + 256, rx : rx + 256]).save(
+            out_dir / f"{x}_{y}.png", optimize=False, compress_level=6
+        )
+
+    # PIL's PNG encoder releases the GIL, so tiles encode on a thread pool.
+    # Each tile is written independently, so the output bytes are unchanged.
+    with cf.ThreadPoolExecutor(max_workers=min(16, os.cpu_count() or 1)) as pool:
+        list(pool.map(save, jobs))
+    print(f"  dem tiles: {len(jobs)} written")
 
 
 def write_bldg_tiles(dem_shape: tuple[int, int], heights: np.ndarray, tile_range: tuple[int, int, int, int]) -> None:
-    x0, y0, x1, y1 = tile_range
+    x0, x1, y0, y1 = tile_range
     out_dir = WEB_TILE_DIR / "bldg"
     out_dir.mkdir(parents=True, exist_ok=True)
     hh, hw = dem_shape
     heights = heights[:hh, :hw]
-    for x in range(x0, x1 + 1):
-        for y in range(y0, y1 + 1):
-            ry = (y - y0) * 256
-            rx = (x - x0) * 256
-            tile = heights[ry : ry + 256, rx : rx + 256]
-            h, w = tile.shape
-            rgb = np.zeros((h, w, 3), dtype=np.uint8)
-            rgb[..., 0] = (tile >> 8) & 255
-            rgb[..., 1] = tile & 255
-            Image.fromarray(rgb, "RGB").save(out_dir / f"{x}_{y}.png", optimize=False, compress_level=6)
+    # npz heights are int16: negative values mean the source value overflowed
+    # int16 (e.g. an absurd measuredHeight) and must not wrap into a huge
+    # unsigned height on decode. Clamp to a plausible 250 m cap.
+    u16 = np.clip(heights.astype(np.int32), 0, 25000).astype(np.uint16)
+    jobs = [(x, y) for x in range(x0, x1 + 1) for y in range(y0, y1 + 1)]
+
+    def save(job: tuple[int, int]) -> None:
+        x, y = job
+        ry = (y - y0) * 256
+        rx = (x - x0) * 256
+        tile = u16[ry : ry + 256, rx : rx + 256]
+        rgb = np.zeros((tile.shape[0], tile.shape[1], 3), dtype=np.uint8)
+        rgb[..., 0] = (tile >> 8) & 255
+        rgb[..., 1] = tile & 255
+        Image.fromarray(rgb, "RGB").save(out_dir / f"{x}_{y}.png", optimize=False, compress_level=6)
+
+    with cf.ThreadPoolExecutor(max_workers=min(16, os.cpu_count() or 1)) as pool:
+        list(pool.map(save, jobs))
+    print(f"  bldg tiles: {len(jobs)} written")
 
 
-def build_overview(mosaic: np.ndarray, sea: np.ndarray) -> dict[str, float | int]:
+def build_overview(
+    mosaic: np.ndarray,
+    sea: np.ndarray,
+    heights: np.ndarray | None = None,
+) -> dict[str, float | int]:
     h, w = mosaic.shape
     oh, ow = h // OVERVIEW_FACTOR, w // OVERVIEW_FACTOR
     crop = mosaic[: oh * OVERVIEW_FACTOR, : ow * OVERVIEW_FACTOR]
@@ -168,6 +228,21 @@ def build_overview(mosaic: np.ndarray, sea: np.ndarray) -> dict[str, float | int
     stream_u8 = (np.clip(acc / STREAM_THRESHOLD_CELLS, 1.0, 12.0) / 12.0 * 255).astype(np.uint8)
     stream_u8[~streams] = 0
     Image.fromarray(stream_u8, "L").save(out_dir / "streams.png")
+
+    # Building overlay for the map view: max-pool the z15 height raster.
+    if heights is not None:
+        hc = heights[: mosaic.shape[0], : mosaic.shape[1]]
+        hc = hc[: oh * OVERVIEW_FACTOR, : ow * OVERVIEW_FACTOR]
+        hblocks = hc.reshape(oh, OVERVIEW_FACTOR, ow, OVERVIEW_FACTOR)
+        bov = np.max(hblocks, axis=(1, 3)).astype(np.int32)
+        bov = np.clip(bov, 0, 25000)
+        bov[sea_ov] = 0
+        rgb = np.empty((oh, ow, 3), dtype=np.uint8)
+        rgb[..., 0] = (bov >> 8) & 255
+        rgb[..., 1] = bov & 255
+        rgb[..., 2] = 0
+        Image.fromarray(rgb, "RGB").save(out_dir / "bldg.png", optimize=False, compress_level=6)
+        print("  overview bldg.png written")
     return {"width": int(ow), "height": int(oh), "m_per_px": float(px_per_cell)}
 
 
@@ -187,15 +262,16 @@ def build() -> None:
 
     print("writing building tiles…")
     npz_path = PLATEAU_EXTRACT_DIR / "buildings_z15.npz"
+    heights: np.ndarray | None = None
     if npz_path.exists():
-        heights = np.load(npz_path)["heights"]
-        write_bldg_tiles(dem.shape, heights, tile_range)
-        del heights
+        heights_npz: np.ndarray = np.load(npz_path)["heights"]
+        heights = heights_npz
+        write_bldg_tiles(dem.shape, heights_npz, tile_range)
     else:
         print("  buildings npz missing — skipped")
 
     print("building overview…")
-    overview = build_overview(dem, sea)
+    overview = build_overview(dem, sea, heights)
 
     # Client-side pixel transform: z15 pixel (i, j) <-> lon/lat. Linear in x,
     # mercator in y; the overview shares the same origin (x0, y0).
@@ -213,6 +289,7 @@ def build() -> None:
         "overview": overview,
         "elevation_encoding": "RGBA PNG: elev_m = (R*65536+G*256+B)/100, A=255 valid",
         "building_encoding": "RGB PNG: height_cm = R*256+G, 0 = no building",
+        "overview_bldg": heights is not None,
         "land_area_km2": float(np.sum(dem > 0.5) * Z15_CELL_AREA_M2 / 1e6),
     }
     WEB_META.write_text(json.dumps(meta, ensure_ascii=False, indent=2))

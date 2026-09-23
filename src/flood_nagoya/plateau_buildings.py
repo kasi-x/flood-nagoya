@@ -104,7 +104,9 @@ def rasterize_buildings(output_npz: Path | None = None) -> Path:
         if (i + 1) % 50 == 0:
             print(f"  bldg {i + 1}/{len(gml_files)} files, {n_bldg} buildings, {time.time() - t_start:.0f}s")
 
-    arr = np.asarray(canvas, dtype=np.int32).reshape(height, width).astype(np.int16)
+    # clip before the int16 cast: absurd measuredHeights must not wrap around
+    # into a negative (and later huge-unsigned) value on decode
+    arr = np.clip(np.asarray(canvas, dtype=np.int32).reshape(height, width), 0, 32000).astype(np.int16)
     output_npz = output_npz or PLATEAU_EXTRACT_DIR / "buildings_z15.npz"
     output_npz.parent.mkdir(parents=True, exist_ok=True)
     np.savez_compressed(output_npz, heights=arr, x0=x0, y0=y0)

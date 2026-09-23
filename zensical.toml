@@ -12,6 +12,8 @@ copyright = 'Maintained by <a href="https://github.com/kasi-x/flood-nagoya">kasi
 
 nav = [
   { "Home" = "index.md" },
+  { "Installation" = "tutorials/installation.md" },
+  { "3Dビュワー比較" = "viewers.md" },
   { "Modules" = "modules.md" },
 ]
 

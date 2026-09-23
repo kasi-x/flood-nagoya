@@ -137,3 +137,7 @@ web/tiles/
 web/overview/
 web/meta.json
 web/scenarios/
+
+# superdesign design canvas state
+.superdesign/
+web/precomputed/
