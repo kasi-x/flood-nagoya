@@ -41,6 +41,11 @@
   → 2026-09-24 対応: lite プリセットは `bldgSrc=simple` を既定にした
   （建物トグルONでローカル箱を表示、PLATEAUタイルは読み込まない）
 
+### 2026-09-24 追加対応
+- **気象レイヤー**: RainViewer 降水レーダーを deck.gl に追加 (`weatherToggle`)
+- **建物の浮き修正**: `buildBldgInstances` で footprint 最低地盤高を底面に変更
+  （斜面で建物が浮かないよう `minBed - margin` を底面、`bedAvg + bh` を上面に）
+
 ### 参考URLパラメータ例
 ```
 ?3d=deck&region=1&lod=1&photo=0&bldg=0&terrain=low

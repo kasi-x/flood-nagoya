@@ -1255,6 +1255,10 @@ function wireUI() {
   $("rainToggle").addEventListener("change", (e) => {
     view3ds.deck?.setRainEnabled(e.target.checked);
   });
+  $("weatherToggle").addEventListener("change", (e) => {
+    view3ds.deck?.setWeatherVisible(e.target.checked);
+  });
+  $("weatherToggle").checked = qs.get("weather") === "1";
   // 3Dビュワー切替 (three.js / deck.gl / CesiumJS)
   for (const input of document.querySelectorAll('input[name="viewer3d"]')) {
     input.addEventListener("change", (e) => {
@@ -1404,8 +1408,8 @@ function set3d(on) {
     $("exagCtl").hidden = view3dKind !== "three";
     $("waveCtl").hidden = view3dKind !== "three";
     $("flowCtl").hidden = view3dKind !== "three";
-    $("streamsSimRow").hidden = view3dKind !== "three";
     $("rainCtl").hidden = view3dKind !== "deck";
+    $("weatherCtl").hidden = view3dKind !== "deck";
     $("bldgSrcCtl").hidden = view3dKind !== "deck";
     if (view3dKind === "deck") {
       view3ds.deck.setRainEnabled($("rainToggle").checked);

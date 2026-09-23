@@ -51,7 +51,10 @@
       </symbol>
       <symbol id="i-rain" viewBox="0 0 24 24">
         <path d="M4 14.9A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.2" />
-        <path d="M16 14v6M8 14v6M12 16v6" />
+        <path d="M8 18v2M12 17v3M16 18v2" />
+      </symbol>
+      <symbol id="i-cloud" viewBox="0 0 24 24">
+        <path d="M17.5 19a4.5 4.5 0 0 0 0-9h-1.8A7 7 0 1 0 4 14.9" />
       </symbol>
       <symbol id="i-play" viewBox="0 0 24 24">
         <path d="m7 4.5 12 7.5-12 7.5v-15z" />
@@ -301,6 +304,10 @@
               class="sw-lbl"><svg class="ic">
                 <use href="#i-rain" />
               </svg>雨を表示 (GPU)</span></label>
+          <label class="switch" id="weatherCtl"><input type="checkbox" id="weatherToggle"><span class="sw"></span><span
+              class="sw-lbl"><svg class="ic">
+                <use href="#i-cloud" />
+              </svg>降水ナウキャスト (気象庁)</span></label>
           <label class="switch"><input type="checkbox" id="perfToggle" checked><span class="sw"></span><span
               class="sw-lbl">パフォーマンス表示 (fps)</span></label>
           <div class="ctl" id="exagCtl"><label>地形の垂直誇張 <output id="exagVal">1.0×</output></label>

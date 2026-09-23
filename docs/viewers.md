@@ -25,7 +25,7 @@ PLATEAU の 3D Tiles を CesiumJS 等で表示すると、建物が空中に浮�
 | ビュワー | 建物のソース | 浮き対策 |
 |---|---|---|
 | three.js (既定) | ローカルの建物高さラスタからインスタンス箱を生成 | 建物の底面を表示メッシュの地盤高にスナップし、傾斜地ではスカートを伸ばす。データが同じDEM由来のため原理的にずれない |
-| deck.gl | PLATEAU 3D Tiles (b3dm, 実寸) | Tile3DLayer が地心直交座標の絶対高さを持つため、地形が同じ国土地理院 DEM 系 (terrarium) なら一致する。浮きの微調整は未実装 (必要なら CesiumJS と同様の modelMatrix 相当の変換を追加できる) |
+| deck.gl | PLATEAU 3D Tiles (b3dm, 実寸) | Tile3DLayer が地心直交座標の絶対高さを持つため、地形が同じ国土地理院 DEM 系 (terrarium) なら一致する。浮きの微調整は未実装 (必要なら CesiumJS と同様の modelMatrix 相当の変換を追加できる)。簡易建物 (`bldg=simple`) は footprint 最低地盤高を底面にして斜面で浮かないようにした |
 | CesiumJS | PLATEAU 3D Tiles (b3dm, 実寸) | 上記 1–3 をそのまま実装。既定の地形は GSI dem5a_png から作った自前 terrain provider (欠測は周辺平均で補間)。`?ionToken=` で Cesium Ion トークンを与えると記事と同じ PLATEAU-Terrain (Ion asset 3258112) に切替。`?hoff=` で高さオフセット (m) を調整できる |
 
 ## アーキテクチャ
@@ -48,6 +48,8 @@ PLATEAU の 3D Tiles を CesiumJS 等で表示すると、建物が空中に浮�
   (「deck.glで水を可視化する」実証)。雨は GPU パーティクルで描く
   (下記「雨のGPU描写」)。カタログ取得に失敗した場合は
   内蔵の tileset URL 表 (`web/geo.js`) にフォールバックする。
+  気象レイヤーとして RainViewer 降水レーダー (`weatherToggle`) を
+  `TileLayer` + `BitmapLayer` で地形に重ねられる (無料・APIキー不要)。
 - **CesiumJS** (`web/view3d_cesium.js`): Web上で実寸都市モデルを表示する
   定番構成。地形は GSI dem5a_png を HeightmapTerrainData に変換する自前
   provider (`?ionToken=` で PLATEAU-Terrain に差し替え)、建物は
@@ -122,6 +124,6 @@ deck.glビュワーでは降雨そのものを GPU で描画できる
 | `?hoff=<m>` | CesiumJS の建物タイルの高さオフセット (浮きの微調整) |
 | `?ionToken=<token>` | Cesium Ion トークン (PLATEAU-Terrain asset 3258112 を使う) |
 | `?perf` | 2D表示中もパフォーマンスHUDを出す |
-| `?bench=<秒>` | 3D起動後にカメラ移動ベンチを自動実行して `window.__benchResult` へ |
 | `?rain=1` | deck.glビュワーで雨のGPUパーティクルを既定ONにする |
+| `?weather=1` | deck.glビュワーで降水レーダー (RainViewer) を既定ONにする |
 | `?exag=<倍率>` | three.js ビュワーの垂直誇張 |

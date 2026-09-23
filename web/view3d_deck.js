@@ -22,6 +22,9 @@ const TERRAIN_URL = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}
 // terrarium: 標高(m) = (R*256 + G + B/8) - 32768
 const ELEVATION_DECODER = { rScaler: 256, gScaler: 1, bScaler: 0.125, offset: -32768 };
 const GSI_ORT_URL = "https://cyberjapandata.gsi.go.jp/xyz/ort/{z}/{x}/{y}.jpg";
+// RainViewer 降水レーダー — 無料・APIキー不要、10分毎更新
+const RAINVIEWER_API = "https://api.rainviewer.com/public/weather-maps.json";
+const RAINVIEWER_TILE = "https://tilecache.rainviewer.com";
 const TERRAIN_MAX_ZOOM = 15;
 const TERRAIN_MESH_ERROR = 8;
 
@@ -68,18 +71,21 @@ function buildBldgInstances(bldgData, terrainData, W, H, mPerPx) {
     const bh = hCm / 100;
     const ex = Math.min(sx + w, W - 1), ey = Math.min(sy + hh, H - 1);
     const mx = sx + w / 2, my = sy + hh / 2;
-    // 地盤高は四隅+中央の平均。傾斜地で浮かないようスカートを垂らす
+    // 地盤高は四隅+中央を取り、最低値を底面にする (斜面で浮かない)
     const b0 = bedAt(sx, sy), b1 = bedAt(ex, sy), b2 = bedAt(sx, ey);
     const b3 = bedAt(ex, ey), bc = bedAt(mx, my);
     const bedAvg = (b0 + b1 + b2 + b3 + bc) / 5;
-    const relief = Math.max(b0, b1, b2, b3, bc) - Math.min(b0, b1, b2, b3, bc);
-    const skirt = Math.max(0.8, relief * 0.4);
+    const minBed = Math.min(b0, b1, b2, b3, bc);
+    const margin = 0.6;
+    const yBottom = minBed - margin;
+    const yTop = bedAvg + bh;
+    const boxH = yTop - yBottom;
     pos[k * 3] = mx * mPerPx - halfW;           // 東 (+x)
     pos[k * 3 + 1] = halfH - my * mPerPx;       // 北 (+y) — ラスタ行0は北端
-    pos[k * 3 + 2] = bedAvg + bh / 2 - skirt / 2;
+    pos[k * 3 + 2] = yBottom + boxH / 2;
     scale[k * 3] = w * mPerPx / 2;              // CubeGeometryは±1 → 半径指定
     scale[k * 3 + 1] = hh * mPerPx / 2;
-    scale[k * 3 + 2] = (bh + skirt) / 2;
+    scale[k * 3 + 2] = boxH / 2;
     // PLATEAU View風の明るいニュートラル色 (three.js版と同じばらつき)
     const t = (((sx * 73856093) ^ (sy * 19349663)) >>> 0) % 100 / 100;
     color[k * 3] = Math.round((0.80 + t * 0.14) * 255);
@@ -149,14 +155,16 @@ export class DeckView {
     this._simpleBldg = undefined;   // 簡易建物バイナリ属性 (遅延構築・リージョン単位でキャッシュ)
     this._lastWaterAt = 0;
     this._frameCount = 0;
-    this._waterCanvases = [document.createElement("canvas"), document.createElement("canvas")];
-    this._waterFlip = 0;
-    this._waterVersion = 0;
     // 雨
     this._rainOn = false;
     this._rainIntensity = 0;    // mm/h
     this._rainGeom = null;
     this._rainRaf = 0;
+    // 気象レイヤー (降水レーダー)
+    this._weatherOn = params.get("weather") === "1";
+    this._weatherOpacity = 0.55;
+    this._weatherTileUrl = null;
+    if (this._weatherOn) this._fetchWeatherTile();
   }
 
   async _init() {
@@ -202,6 +210,12 @@ export class DeckView {
     // PLATEAUタイルは plateau モードのときだけ取得する (simple は通信ゼロ)
     if (this._bldgMode === "plateau") this._loadBuildings(lonC, latC);
     this._simpleBldg = undefined;
+    // 水深キャンバス (ダブルバッファ) — updateWater で交互に使う
+    if (!this._waterCanvases) {
+      this._waterCanvases = [document.createElement("canvas"), document.createElement("canvas")];
+      this._waterFlip = 0;
+      this._waterVersion = 0;
+    }
     this._buildRainGeom(W, H, mPerPx);
     this._renderLayers();
   }
@@ -376,8 +390,59 @@ export class DeckView {
         }));
       }
     }
-    layers.push(...this._rainLayers());
+    // 気象レイヤー: RainViewer 降水レーダーを地形の上に重ねる
+    if (this._weatherOn && this._weatherTileUrl) {
+      layers.push(new deck.TileLayer({
+        id: "weather-radar",
+        data: this._weatherTileUrl,
+        minZoom: 4, maxZoom: 14,
+        tileSize: 256,
+        opacity: this._weatherOpacity,
+        renderSubLayers: (props) => {
+          // tile.index = {x, y, z} — Web Mercator タイル番号から lon/lat を計算
+          const { x, y, z } = props.tile.index;
+          const n = Math.pow(2, z);
+          const lonMin = x / n * 360 - 180;
+          const lonMax = (x + 1) / n * 360 - 180;
+          const latMax = Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n))) * 180 / Math.PI;
+          const latMin = Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + 1) / n))) * 180 / Math.PI;
+          return new deck.BitmapLayer(props, {
+            data: null,
+            image: props.data,
+            bounds: [lonMin, latMin, lonMax, latMax],
+          });
+        },
+      }));
+    }
     this.deck.setProps({ layers });
+  }
+
+  /** 気象レイヤー (降水レーダー) の表示切替。 */
+  setWeatherVisible(v) {
+    this._weatherOn = !!v;
+    if (this._weatherOn && !this._weatherTileUrl) this._fetchWeatherTile();
+    this._renderLayers();
+  }
+
+  /** RainViewer API から最新レーダータイルURLを取得する。 */
+  async _fetchWeatherTile() {
+    try {
+      const res = await fetch(RAINVIEWER_API);
+      const data = await res.json();
+      const latest = data.radar?.past?.slice(-1)[0];
+      if (latest?.path) {
+        this._weatherTileUrl = `${RAINVIEWER_TILE}${latest.path}/256/{z}/{x}/{y}/4/1_1.png`;
+        this._renderLayers();
+      }
+    } catch (e) {
+      console.warn("RainViewer API取得失敗:", e);
+    }
+  }
+
+  /** 気象レイヤーの不透明度 (0..1)。 */
+  setWeatherOpacity(v) {
+    this._weatherOpacity = Math.max(0, Math.min(1, v));
+    if (this._weatherOn) this._renderLayers();
   }
 
   /** シミュレーション状態 → 水深キャンバス → 地形にドレープ (~4Hz)。 */
