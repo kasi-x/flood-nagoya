@@ -50,6 +50,7 @@ let fpsInfo = { last: performance.now(), dtAvg: 16 };
 let mapReady = false;
 let mapDemTex = null, mapStreamsTex = null, mapBldgTex = null;
 let mapLayers = { bldg: true, streams: true };
+let streamsImg = null;         // 分水域・流路オーバーレイ画像 (3Dビュワー共通)
 let riverOn = true;            // 河川氾濫モデル (1D河道→2D溢水)
 let observedList = [];   // [{kind, button, entry}] in index.json order
 // 3Dビュワー (three.js / deck.gl / CesiumJS) の種別とインスタンス。
@@ -847,7 +848,9 @@ async function startPlayback(dir) {
     loadImage("precomputed/sakai/streams.png").then((img) => {
       sim.streamsTex = sim.makeTexFromImage(img);
       sim.streamsOverlay = $("streamsSimToggle").checked;
+      streamsImg = img;
       if (view3ds.three) view3ds.three.setStreamsCanvas(img);
+      if (view3ds.deck) view3ds.deck.setStreamsCanvas(img);
     }).catch(() => { });
 
     playback.on = true;
@@ -1198,6 +1201,7 @@ function wireUI() {
   $("streamsSimToggle").addEventListener("change", (e) => {
     if (sim) sim.streamsOverlay = e.target.checked;
     if (view3ds.three) view3ds.three.setStreamsVisible(e.target.checked);
+    if (view3ds.deck) view3ds.deck.setStreamsVisible(e.target.checked);
   });
   $("tabMap").addEventListener("click", () => {
     if (mode === "sim") backToMap();
@@ -1416,7 +1420,8 @@ function set3d(on) {
       view3ds.deck.setPhotoVisible($("photo3dToggle").checked);
       view3ds.deck.setBuildingsVisible($("bldg3dToggle").checked);
       view3ds.deck.setTerrainQuality(terrainQuality);
-      view3ds.deck.setBuildingLoad(deckLod);
+      view3ds.deck.setStreamsVisible($("streamsSimToggle").checked);
+      if (streamsImg) view3ds.deck.setStreamsCanvas(streamsImg);
       view3ds.deck.setBuildingSource(bldgSrc);
     }
     toast(`3D表示中 (${view3dKind}) — ドラッグで回転・ホイールでズーム・右ドラッグで移動`);
@@ -1449,6 +1454,9 @@ function applyRegionTo3d() {
   if (view3ds.three) {
     view3ds.three.setFlowEnabled(flow.on);
     view3ds.three.setStreamsVisible($("streamsSimToggle").checked);
+  }
+  if (view3ds.deck) {
+    view3ds.deck.setStreamsVisible($("streamsSimToggle").checked);
   }
   // リプレイ中は region再構築で水位が消えるので、現フレームを再バインドする
   if (playback.on && playback.cur >= 0 && playback.cache.has(playback.cur)) {

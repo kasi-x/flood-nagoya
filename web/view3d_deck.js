@@ -390,6 +390,17 @@ export class DeckView {
         }));
       }
     }
+    layers.push(...this._rainLayers());
+    // 分水域・流路オーバーレイ (シミュレーション領域にドレープ)
+    if (this._streamsOn && this._streamsImg && this.bbox) {
+      layers.push(new deck.BitmapLayer({
+        id: "streams",
+        image: this._streamsImg,
+        bounds: this.bbox,
+        opacity: 0.7,
+        extensions: [new deck._TerrainExtension()],
+      }));
+    }
     // 気象レイヤー: RainViewer 降水レーダーを地形の上に重ねる
     if (this._weatherOn && this._weatherTileUrl) {
       layers.push(new deck.TileLayer({
@@ -459,7 +470,14 @@ export class DeckView {
   }
 
   setFlowEnabled() { }          // three.js版の流線パーティクルは非対応
-  setStreamsVisible() { }
+  setStreamsVisible(v) {
+    this._streamsOn = !!v;
+    this._renderLayers();
+  }
+  setStreamsCanvas(img) {
+    this._streamsImg = img;
+    this._renderLayers();
+  }
   setWaves() { }
   setExag() { }                 // 地理座標は真スケール (垂直誇張なし)
   setPhotoVisible(v) {
