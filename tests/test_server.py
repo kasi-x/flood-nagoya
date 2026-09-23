@@ -90,3 +90,71 @@ def test_serve_serves_files_and_no_store(tmp_path: Path, monkeypatch: pytest.Mon
         captured["srv"].shutdown()
         thread.join(timeout=5)
     assert not thread.is_alive()
+
+
+def test_serve_port_in_use_exits(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """EADDRINUSE produces a friendly SystemExit, not a traceback."""
+    import errno
+    import http.server
+
+    from flood_nagoya import server
+
+    (tmp_path / "index.html").write_text("<html></html>", encoding="utf-8")
+    (tmp_path / "meta.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(server, "WEB_DIR", tmp_path)
+
+    def busy(*_a: object, **_k: object) -> None:
+        raise OSError(errno.EADDRINUSE, "in use")
+
+    monkeypatch.setattr(http.server, "ThreadingHTTPServer", busy)
+    with pytest.raises(SystemExit, match="already in use"):
+        server.serve(port=8642)
+
+
+def test_serve_open_browser_flag(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """--open calls webbrowser.open with the serving URL."""
+    import http.server
+    import threading
+    import webbrowser
+
+    from flood_nagoya import server
+
+    (tmp_path / "index.html").write_text("<html></html>", encoding="utf-8")
+    (tmp_path / "meta.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(server, "WEB_DIR", tmp_path)
+
+    opened: list[str] = []
+    monkeypatch.setattr(webbrowser, "open", opened.append)
+
+    captured: dict[str, http.server.ThreadingHTTPServer] = {}
+    real_cls = http.server.ThreadingHTTPServer
+
+    class Spy(real_cls):
+        def __init__(
+            self,
+            server_address: tuple[str, int],
+            handler: type[http.server.BaseHTTPRequestHandler],
+            *,
+            bind_and_activate: bool = True,
+        ) -> None:
+            super().__init__(server_address, handler, bind_and_activate)
+            captured["srv"] = self
+
+    monkeypatch.setattr(http.server, "ThreadingHTTPServer", Spy)
+
+    thread = threading.Thread(
+        target=server.serve,
+        kwargs={"host": "127.0.0.1", "port": 0, "open_browser": True},
+        daemon=True,
+    )
+    thread.start()
+    try:
+        for _ in range(100):
+            if "srv" in captured:
+                break
+            thread.join(0.05)
+        assert len(opened) == 1
+        assert opened[0].startswith("http://127.0.0.1:")
+    finally:
+        captured["srv"].shutdown()
+        thread.join(timeout=5)

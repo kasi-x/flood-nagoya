@@ -81,7 +81,9 @@ let view3dKind = ["three", "deck", "cesium"].includes(qs.get("3d"))
 const photoDefault = qs.has("photo") ? qs.get("photo") !== "0" : !liteDefault;
 const bldgParam = qs.get("bldg");
 const bldgDefault = bldgParam != null ? bldgParam !== "0" : !liteDefault;
-let bldgSrc = bldgParam === "simple" ? "simple" : "plateau";   // deck.gl 建物ソース
+let bldgSrc = bldgParam === "simple" || bldgParam === "plateau"
+  ? bldgParam
+  : (liteDefault ? "simple" : "plateau");   // deck.gl 建物ソース (liteではローカル箱)
 let terrainQuality = ["low", "medium", "high"].includes(qs.get("terrain") || "")
   ? qs.get("terrain") : (liteDefault ? "low" : "high");        // deck.gl 地形クオリティ
 let deckLod = qs.get("lod") === "1" || qs.get("lod") === "2"
@@ -1190,10 +1192,14 @@ function wireUI() {
     }
     terrainQuality = "low";
     deckLod = "1";
+    bldgSrc = "simple";   // 建物をONにしてもローカル箱で軽い
+    for (const input of document.querySelectorAll('input[name="bldgsrc"]')) {
+      input.checked = input.value === "simple";
+    }
     $("photo3dToggle").checked = false;
     $("bldg3dToggle").checked = false;
     set3d(true);
-    toast("軽量3Dプリセットを適用しました (deck.gl / 写真OFF / 建物OFF / 地形low / LOD1)");
+    toast("軽量3Dプリセットを適用しました (deck.gl / 写真OFF / 建物OFF・簡易 / 地形low / LOD1)");
   });
   // 雨のGPUパーティクル (deck.glビュワーのみ)。?rain=1 で既定ON
   $("rainToggle").checked = qs.get("rain") === "1";

@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from flood_nagoya import spatial
+from flood_nagoya.config import LAT_MAX, LAT_MIN, LON_MAX, LON_MIN
 from flood_nagoya.gsitiles import bbox_tile_range
 from flood_nagoya.spatial import build_spatial_scenario
 from flood_nagoya.spatial import decode_frame_png
@@ -70,3 +71,15 @@ def test_write_spatial_scenario_updates_index(tmp_path: Path) -> None:
     index = (tmp_path / "index.json").read_text(encoding="utf-8")
     assert "名古屋 MSM較正 2026-09-08" in index
     assert "(MSM較正)" in index
+
+
+def test_overview_lat_lon_covers_study_bbox() -> None:
+    """overview_lat_lon returns per-pixel lat/lon inside the study bbox."""
+    lat2d, lon2d = spatial.overview_lat_lon()
+    w, h = overview_shape()
+    assert lat2d.shape == (h, w)
+    assert lon2d.shape == (h, w)
+    assert lat2d.min() >= LAT_MIN - 0.01 and lat2d.max() <= LAT_MAX + 0.01
+    assert lon2d.min() >= LON_MIN - 0.01 and lon2d.max() <= LON_MAX + 0.01
+    # row 0 is the northern edge
+    assert lat2d[0, 0] > lat2d[-1, 0]

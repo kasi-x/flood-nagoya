@@ -9,7 +9,7 @@
 // 建物: Tile3DLayer で PLATEAU の b3dm を表示。建物は地心直交座標の絶対高さを
 //       持ち、地形も同じ国土地理院 DEM 基準のため「浮き」がない。
 
-import { drawWaterCanvas, loadScript, mergeBuildingRects, pickBldgTileset, regionBBox } from "./geo.js?v=27";
+import { decodeTerrCm, drawWaterCanvas, loadScript, mergeBuildingRects, pickBldgTileset, regionBBox } from "./geo.js?v=27";
 
 // ローカルにベンダリングした deck.gl (MIT License, https://deck.gl)
 const DECK_URL = "lib/deck.gl.min.js";
@@ -352,7 +352,7 @@ export class DeckView {
           layers.push(new deck.SimpleMeshLayer({
             id: "bldg-simple",
             data,
-            mesh: this._cube ??= new deck.CubeGeometry(),
+            mesh: this._cube ??= new window.luma.CubeGeometry(),
             coordinateSystem: deck.COORDINATE_SYSTEM.METER_OFFSETS,
             coordinateOrigin: [lonC, latC],
             material: { ambient: 0.45, diffuse: 0.6, shininess: 16, specularColor: [30, 30, 30] },
