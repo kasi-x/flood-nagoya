@@ -34,6 +34,10 @@ if TYPE_CHECKING:
     import pytest_mock
 
 EVENT_DAY = dt.date(2026, 9, 16)
+# build_day_scenario は ~8日の保持期間チェックを通る必要があるため動的な日付を使う。
+# (固定日の EVENT_DAY は URL 組み立て等の純粋関数テスト専用)
+RECENT_DAY = dt.datetime.now(dt.timezone(dt.timedelta(hours=9))).date() - dt.timedelta(days=1)
+RECENT_STAMP = RECENT_DAY.strftime("%Y%m%d")
 
 # 名古屋市を含むタイル (北緯34.67〜35.33度・東経136〜137度) と南東の市外タイル
 AREA_INFO: list[dict[str, int]] = [
@@ -190,7 +194,7 @@ def test_build_day_scenario_no_frames_raises(mocker: pytest_mock.MockerFixture, 
     mocker.patch.object(xrain, "fetch_master", return_value=[])
     mocker.patch.object(xrain, "get_bytes", return_value=None)
     with pytest.raises(RuntimeError, match="no XRAIN"):
-        xrain.build_day_scenario(EVENT_DAY, out_dir=tmp_path)
+        xrain.build_day_scenario(RECENT_DAY, out_dir=tmp_path)
 
 
 def test_build_day_scenario_full_flow(mocker: pytest_mock.MockerFixture, tmp_path: Path) -> None:
@@ -200,9 +204,8 @@ def test_build_day_scenario_full_flow(mocker: pytest_mock.MockerFixture, tmp_pat
     small_lat = np.array([[35.2, 35.2, 35.2], [35.0, 35.0, 35.0]])
     small_lon = np.array([[136.8, 136.9, 137.0]] * 2)
     mocker.patch.object(xrain, "overview_lat_lon", return_value=(small_lat, small_lon))
-
-    path = xrain.build_day_scenario(EVENT_DAY, level=3, out_dir=tmp_path, parallel=4)
-    assert path.name == "rain_20260916_xrain.json"
+    path = xrain.build_day_scenario(RECENT_DAY, level=3, out_dir=tmp_path, parallel=4)
+    assert path.name == f"rain_{RECENT_STAMP}_xrain.json"
     scenario = json.loads(path.read_text(encoding="utf-8"))
     assert scenario["kind"] == "xrain"
     assert scenario["frame_seconds"] == 300
@@ -210,10 +213,10 @@ def test_build_day_scenario_full_flow(mocker: pytest_mock.MockerFixture, tmp_pat
     assert scenario["geo"]["height"] == spatial.overview_shape()[1]
     n_frames = len(scenario["frames"])
     assert n_frames > 0
-    frame_pngs = list(path.parent.glob("rain_20260916_xrain/f*.png"))
+    frame_pngs = list(path.parent.glob(f"rain_{RECENT_STAMP}_xrain/f*.png"))
     assert len(frame_pngs) == n_frames
     # すべてのフレームで雨 (階級 10-20mm/h の中央値 15) が降っている
     assert scenario["peak_mmh"] == pytest.approx(15.0)
     index = json.loads((tmp_path / "index.json").read_text(encoding="utf-8"))
-    entry = next(e for e in index if e["file"] == "rain_20260916_xrain.json")
+    entry = next(e for e in index if e["file"] == f"rain_{RECENT_STAMP}_xrain.json")
     assert "XRAINレーダー" in entry["name"]
