@@ -28,8 +28,10 @@ const TERRAIN_MESH_ERROR = 8;
 // 地形クオリティプリセット（?terrain=low|medium|high）。軽量版ではタイル範囲を
 // シミュレーション領域に絞り、メッシュを粗く・ズームを下げる。
 const TERRAIN_QUALITY = {
-  low: { meshMaxError: 40, maxZoom: 13 },
-  medium: { meshMaxError: 20, maxZoom: 14 },
+  // meshMaxError はメートル単位の標高誤差。洪水ビューアでは数mの起伏が
+  // 意味を持つため、low でも 12m までに抑える (40m だと台地が消える)。
+  low: { meshMaxError: 12, maxZoom: 13 },
+  medium: { meshMaxError: 6, maxZoom: 14 },
   high: { meshMaxError: TERRAIN_MESH_ERROR, maxZoom: TERRAIN_MAX_ZOOM },
 };
 
