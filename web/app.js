@@ -1323,7 +1323,11 @@ function wireUI() {
 }
 
 function activateTab(id) {
-  for (const t of ["tabMap", "tab2d", "tab3d"]) $(t).classList.toggle("on", t === id);
+  for (const t of ["tabMap", "tab2d", "tab3d"]) {
+    const on = t === id;
+    $(t).classList.toggle("on", on);
+    $(t).setAttribute("aria-selected", on ? "true" : "false");
+  }
 }
 
 /** ズームボタン: 2Dはビュー中心、3Dはカメラターゲット基準で拡縮。 */

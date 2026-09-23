@@ -103,14 +103,14 @@
       <b>FLOOD NAGOYA</b>
       <small>5m DEM × PLATEAU × GPU浅水方程式</small>
     </div>
-    <nav id="viewtabs" role="tablist">
-      <button id="tabMap" class="on" role="tab"><svg class="ic">
+    <nav id="viewtabs" role="tablist" aria-label="表示モード">
+      <button id="tabMap" class="on" role="tab" aria-selected="true"><svg class="ic">
           <use href="#i-map" />
         </svg><span>地図</span></button>
-      <button id="tab2d" role="tab"><svg class="ic">
+      <button id="tab2d" role="tab" aria-selected="false"><svg class="ic">
           <use href="#i-grid" />
         </svg><span>2D</span></button>
-      <button id="tab3d" role="tab"><svg class="ic">
+      <button id="tab3d" role="tab" aria-selected="false"><svg class="ic">
           <use href="#i-mountain" />
         </svg><span>3D</span></button>
     </nav>
@@ -143,10 +143,6 @@
             <use href="#i-globe" />
           </svg>名古屋市全域で実行 (広域モード)
         </button>
-        <p class="hint">
-          地図上を<strong>ドラッグ</strong>で範囲選択 (最大 約17×16km)。<br>
-          <strong>ホイール</strong>でズーム、<strong>Space+ドラッグ</strong>で地図をパン。
-        </p>
       </section>
       <section id="replaySection" hidden>
         <h3>浸水リプレイ</h3>
