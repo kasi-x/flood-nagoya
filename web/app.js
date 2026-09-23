@@ -1197,6 +1197,7 @@ function wireUI() {
   $("flowToggle").addEventListener("change", (e) => {
     flow.setEnabled(e.target.checked);
     if (view3ds.three) view3ds.three.setFlowEnabled(e.target.checked);
+    if (view3ds.deck) view3ds.deck.setFlowEnabled(e.target.checked);
   });
   $("streamsSimToggle").addEventListener("change", (e) => {
     if (sim) sim.streamsOverlay = e.target.checked;
@@ -1419,10 +1420,10 @@ function set3d(on) {
       view3ds.deck.setRainEnabled($("rainToggle").checked);
       view3ds.deck.setPhotoVisible($("photo3dToggle").checked);
       view3ds.deck.setBuildingsVisible($("bldg3dToggle").checked);
-      view3ds.deck.setTerrainQuality(terrainQuality);
       view3ds.deck.setStreamsVisible($("streamsSimToggle").checked);
       if (streamsImg) view3ds.deck.setStreamsCanvas(streamsImg);
       view3ds.deck.setBuildingSource(bldgSrc);
+      view3ds.deck.setFlowEnabled(flow.on);
     }
     toast(`3D表示中 (${view3dKind}) — ドラッグで回転・ホイールでズーム・右ドラッグで移動`);
     // ?bench=秒 があれば自動でベンチを走らせる (軽さ比較用)

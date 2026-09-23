@@ -42,11 +42,18 @@
   （建物トグルONでローカル箱を表示、PLATEAUタイルは読み込まない）
 
 ### 2026-09-24 追加対応
+- **CesiumJSの建物浮き**: 地形の既定を公開PLATEAU-Terrain
+  (`https://tile.plateauview.mlit.go.jp/terrain`、quantized-mesh・楕円体高・
+  Ion不要) に変更。PLATEAU建物と垂直基準が合うため `?hoff=` の手動補正は
+  通常不要。取得失敗時のみ自前GSI DEM (正標高) に退避。原因は自前地形が
+  dem5a_png (正標高) のままだったことで、建物 (楕円体高) と約ジオイド高ぶん
+  ずれていたため。合わせて deck.gl 側も調査: terrarium は dem5a_png と
+  中央値で約+12mずれ、PLATEAU建物との基準一致は保証されないことを文書化。
+  独自の毎回修正は不要 (正しい地形を選ぶだけで解消)。
 - **気象レイヤー**: RainViewer 降水レーダーを deck.gl に追加 (`weatherToggle` / `?weather=1`)
 - **分水域・流路オーバーレイ**: `streams.png` を `BitmapLayer` で地形にドレープ
 - **建物の浮き修正**: `buildBldgInstances` で footprint 最低地盤高を底面に変更
   （斜面で建物が浮かないよう `minBed - margin` を底面、`bedAvg + bh` を上面に）
-
 ### 参考URLパラメータ例
 ```
 ?3d=deck&region=1&lod=1&photo=0&bldg=0&terrain=low

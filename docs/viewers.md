@@ -25,8 +25,8 @@ PLATEAU の 3D Tiles を CesiumJS 等で表示すると、建物が空中に浮�
 | ビュワー | 建物のソース | 浮き対策 |
 |---|---|---|
 | three.js (既定) | ローカルの建物高さラスタからインスタンス箱を生成 | 建物の底面を表示メッシュの地盤高にスナップし、傾斜地ではスカートを伸ばす。データが同じDEM由来のため原理的にずれない |
-| deck.gl | PLATEAU 3D Tiles (b3dm, 実寸) | Tile3DLayer が地心直交座標の絶対高さを持つため、地形が同じ国土地理院 DEM 系 (terrarium) なら一致する。浮きの微調整は未実装 (必要なら CesiumJS と同様の modelMatrix 相当の変換を追加できる)。簡易建物 (`bldg=simple`) は footprint 最低地盤高を底面にして斜面で浮かないようにした |
-| CesiumJS | PLATEAU 3D Tiles (b3dm, 実寸) | 上記 1–3 をそのまま実装。既定の地形は GSI dem5a_png から作った自前 terrain provider (欠測は周辺平均で補間)。`?ionToken=` で Cesium Ion トークンを与えると記事と同じ PLATEAU-Terrain (Ion asset 3258112) に切替。`?hoff=` で高さオフセット (m) を調整できる |
+| deck.gl | PLATEAU 3D Tiles (b3dm, 実寸) | 実寸建物は楕円体高だが、地形の terrarium (AWS Terrain Tiles) はPLATEAU建物と垂直基準が合っていない (名古屋中心で dem5a_png との差は中央値約+12m)。基準の不一致は手動で吸収していないため、実寸PLATEAU表示では数m〜十数mのずれが残りうる。簡易建物 (`bldg=simple`) は footprint 最低地盤高を底面にして斜面で浮かないようにした |
+| CesiumJS | PLATEAU 3D Tiles (b3dm, 実寸) | 地形の既定を公開PLATEAU-Terrain (`https://tile.plateauview.mlit.go.jp/terrain`、Ion不要) に変更済み。同地形は楕円体高のため `?hoff=` の手動補正は通常不要。取得失敗時のみ自前GSI DEM (正標高) に退避し、その場合のみ `?hoff=` で吸収する |
 
 ## アーキテクチャ
 
@@ -53,9 +53,11 @@ PLATEAU の 3D Tiles を CesiumJS 等で表示すると、建物が空中に浮�
   分水域・流路オーバーレイ (`streamsSimToggle`) も `BitmapLayer` で
   シミュレーション領域にドレープする。
 - **CesiumJS** (`web/view3d_cesium.js`): Web上で実寸都市モデルを表示する
-  定番構成。地形は GSI dem5a_png を HeightmapTerrainData に変換する自前
-  provider (`?ionToken=` で PLATEAU-Terrain に差し替え)、建物は
-  `Cesium3DTileset`、水面は水深キャンバスを `SingleTileImageryProvider`
+  定番構成。地形は既定で公開PLATEAU-Terrain
+  (`https://tile.plateauview.mlit.go.jp/terrain`、quantized-mesh・楕円体高・
+  Ion不要。帰属 `PLATEAU | Mapterhorn | 国土地理院`) を使い、取得失敗時のみ
+  自前GSI DEM provider に退避する (`?ionToken=` でIon asset 3258112も選択可)、
+  建物は `Cesium3DTileset`、水面は水深キャンバスを `SingleTileImageryProvider`
   で範囲矩形にドレープする。deck.gl 版と同じく地形の裏側の隠蔽
   (`depthTestAgainstTerrain`) と `applyHeightOffset` を実装済み。
 

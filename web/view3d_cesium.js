@@ -2,13 +2,11 @@
 // 浮かないようにする。Zenn記事
 // (https://zenn.dev/investaitech/articles/730bd6f9fa90c0) の
 // 「建物が浮く」問題の解決策をそのまま実装している:
-//   1. 地形の適用 (記事: PLATEAU-Terrain / Ion asset 3258112。トークンが無い
-//      環境向けに国土地理院 DEM から作る自前 terrain provider を既定にする)
+//   1. 地形の適用 (既定: 公開PLATEAU-Terrain quantized-mesh。
+//      GSI DEM + GSIGEO2011合成の楕円体高なのでPLATEAU建物と垂直基準が合う。
+//      Ionトークン指定時はIon asset 3258112、取得失敗時のみ自前GSI DEMに退避)
 //   2. depthTestAgainstTerrain で地形の裏側を隠す
-//   3. applyHeightOffset (modelMatrix平行移動) での微調整 (?hoff=メートル)
-// 水面はシミュレーション状態のキャンバスを SingleTileImageryProvider で
-// 地形にドレープする (水深色は 2D/three.js版と同じランプ)。
-
+//   3. applyHeightOffset (modelMatrix平行移動) での微調整 (?hoff=メートル、通常は不要)
 import { drawWaterCanvas, loadScript, pickBldgTileset, regionBBox } from "./geo.js?v=27";
 
 // CesiumJS は配布サイズが大きいためローカルには置かず、公式CDNから読む
@@ -17,6 +15,9 @@ const CESIUM_CSS = "https://cesium.com/downloads/cesiumjs/releases/1.132/Build/C
 // PLATEAU-Terrain (Cesium Ion asset 3258112) — Ionトークンが ?ionToken= /
 // localStorage で与えられたときだけ使う (記事の構成)
 const PLATEAU_TERRAIN_ION_ASSET = 3258112;
+// Ion不要の公開 quantized-mesh。GSI DEM + ジオイド補正済み（楕円体高）のため、
+// PLATEAU建物と垂直基準が合い、手動の ?hoff= 補正を前提にしない。
+const PLATEAU_TERRAIN_URL = "https://tile.plateauview.mlit.go.jp/terrain";
 const GSI_ORT_URL = "https://cyberjapandata.gsi.go.jp/xyz/ort/{z}/{x}/{y}.jpg";
 const GSI_DEM_URL = (z, x, y) => `https://cyberjapandata.gsi.go.jp/xyz/dem5a_png/${z}/${x}/${y}.png`;
 const GSI_DEM_MAX_ZOOM = 15;   // dem5a_png は z15 まで
@@ -29,13 +30,14 @@ function heightOffsetMeters() {
   const v = Number.parseFloat(qs().get("hoff") || "");
   return Number.isFinite(v) ? v : 0;
 }
-
 /* ---------------------------------------------------------------- */
-/* 国土地理院 DEM (dem5a_png) から Cesium 用の地形を作る provider。   */
-/* タイルは 24bit RGB で 標高(m) = (R*65536+G*256+B)/100。           */
-/* 欠測 (0x80,0x00,0x00) は周辺の有効値で補間する。z15超は親から補間。*/
-/* Cesium.TerrainProvider は抽象インターフェース (インスタンス化禁止) */
-/* のため、インターフェースを実装した素のクラスとして作る。           */
+/* 公開PLATEAU-Terrainが使えない場合の退避用。国土地理院 DEM (dem5a_png) */
+/* を Cesium 用の地形にする provider。タイルは 24bit RGB で            */
+/* 標高(m) = (R*65536+G*256+B)/100（正標高のため、この地形では建物が約    */
+/* ジオイド高ぶん浮く/沈む。既定はPLATEAU-Terrainなので通常は使われない）。*/
+/* 欠測 (0x80,0x00,0x00) は周辺の有効値で補間する。z15超は親から補間。   */
+/* Cesium.TerrainProvider は抽象インターフェース (インスタンス化禁止)     */
+/* のため、インターフェースを実装した素のクラスとして作る。               */
 /* ---------------------------------------------------------------- */
 let GsiTerrainProviderClass = null;
 
@@ -164,10 +166,10 @@ function makeGsiTerrainProvider() {
   };
   return new GsiTerrainProviderClass();
 }
-
 /* ---------------------------------------------------------------- */
 /* Zenn記事の applyHeightOffset — tileset全体を modelMatrix で上下に  */
-/* 平行移動し、地形とのわずかなずれを吸収する。                      */
+/* 平行移動する。自前GSI DEM退避時など、地形と建物の垂直基準がずれた    */
+/* 場合の手動微調整 (?hoff=メートル)。既定のPLATEAU-Terrainでは不要。 */
 /* ---------------------------------------------------------------- */
 function applyHeightOffset(tileset, offset) {
   if (!offset) return;
@@ -208,13 +210,13 @@ export class CesiumView {
     const token = ionToken();
     if (token) Cesium.Ion.defaultAccessToken = token;
     const viewer = new Cesium.Viewer(this.container, {
-      // 既定のBing/Ionに頼らない: 航空写真は国土地理院、地形はGSI DEM
+      // 既定のBing/Ionに頼らない: 航空写真は国土地理院、地形はPLATEAU-Terrain
       baseLayer: new Cesium.ImageryLayer(new Cesium.UrlTemplateImageryProvider({
         url: GSI_ORT_URL,
         credit: new Cesium.Credit("国土地理院 航空写真(ort)"),
         maximumLevel: 17,
       })),
-      terrainProvider: makeGsiTerrainProvider(),
+      terrainProvider: await this._makeTerrainProvider(),
       baseLayerPicker: false, geocoder: false, homeButton: false,
       sceneModePicker: false, navigationHelpButton: false, animation: false,
       timeline: false, fullscreenButton: false, infoBox: false,
@@ -226,17 +228,29 @@ export class CesiumView {
     viewer.scene.globe.depthTestAgainstTerrain = true;   // 記事の設定
     viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#9cc0e0");
     viewer.scene.postRender.addEventListener(() => { this._frameCount++; });
-    // IonトークンがあればPLATEAU-Terrain (記事の構成) に差し替える
-    if (token) {
-      try {
-        viewer.terrainProvider = await Cesium.CesiumTerrainProvider.fromIonAssetId(
-          PLATEAU_TERRAIN_ION_ASSET);
-      } catch (e) {
-        console.warn("PLATEAU-Terrain (Ion) を使えず GSI DEM 地形のまま: ", e);
-      }
-    }
     if (this._pendingRegion) this.setRegion(...this._pendingRegion);
     return this;
+  }
+
+  /** 地形provider選択: 公開PLATEAU-Terrain優先、失敗時のみ自前GSI DEM。 */
+  async _makeTerrainProvider() {
+    const Cesium = window.Cesium;
+    const token = ionToken();
+    if (token) {
+      try {
+        return await Cesium.CesiumTerrainProvider.fromIonAssetId(
+          PLATEAU_TERRAIN_ION_ASSET);
+      } catch (e) {
+        console.warn("PLATEAU-Terrain (Ion) を使えず公開 quantized-mesh を試す: ", e);
+      }
+    }
+    try {
+      return await Cesium.CesiumTerrainProvider.fromUrl(
+        PLATEAU_TERRAIN_URL, { requestVertexNormals: true });
+    } catch (e) {
+      console.warn("公開PLATEAU-Terrainを使えず GSI DEM 地形にフォールバック: ", e);
+      return makeGsiTerrainProvider();
+    }
   }
 
   setOrigin(left, top) {

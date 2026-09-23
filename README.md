@@ -119,9 +119,9 @@ docker run --rm flood-nagoya python -m flood_nagoya serve --host 0.0.0.0
   軽量描画。流線パーティクルや波の演出はこちらのみ。
 - **deck.gl** — PLATEAU の実寸 3D Tiles 建物を Tile3DLayer で表示。
   水面は地形へのドレープ、降雨は GPU パーティクル (「雨を表示」) で可視化。
-- **CesiumJS** — GSI DEM 地形 (または `?ionToken=` でPLATEAU-Terrain) 上に
-  PLATEAU 建物を正確に沈めて表示。「建物が浮く」問題の対策
-  (depthTestAgainstTerrain + 高さオフセット `?hoff=`) を実装済み。
+- **CesiumJS** — 公開PLATEAU-Terrain (Ion不要の quantized-mesh、楕円体高) 上に
+  PLATEAU 建物を実寸表示。垂直基準が合うため建物の浮きは原理的に起きない
+  (地形の取得失敗時は自前GSI DEMに退避し `?hoff=` で微調整)。
 
 詳しい設計と軽さの比較は [docs/viewers.md](docs/viewers.md) を参照。
 

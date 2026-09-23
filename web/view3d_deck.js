@@ -15,12 +15,11 @@ import { decodeTerrCm, drawWaterCanvas, loadScript, mergeBuildingRects, pickBldg
 const DECK_URL = "lib/deck.gl.min.js";
 
 // 地形タイル: AWS Terrain Tiles (terrarium) — CORS有り・欠測なしの全球DEM。
-// GSI dem5a_png は都市部に欠測 (0x80,0,0 → 327.68mと解釈されスパイク化) が
-// 多いため、deck.glのストリーミング地形には使わない (精度は three.js/Cesium
-// ビュワーのローカル5mDEM側で担保する)。
-const TERRAIN_URL = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png";
-// terrarium: 標高(m) = (R*256 + G + B/8) - 32768
-const ELEVATION_DECODER = { rScaler: 256, gScaler: 1, bScaler: 0.125, offset: -32768 };
+// 注意: terrariumは標高基準がPLATEAU建物 (楕円体高) と合っていない。
+// 名古屋中心z15タイルでの dem5a_png (正標高) との差は中央値で約+12m
+// (参考: GSIGEO2011のジオイド高は名古屋で約+37mではない。terrariumの
+// 日本域の標高が何基準かは未確認のため、PLATEAU実寸建物との組み合わせでは
+// 基準の一致は保証されない)。
 const GSI_ORT_URL = "https://cyberjapandata.gsi.go.jp/xyz/ort/{z}/{x}/{y}.jpg";
 // RainViewer 降水レーダー — 無料・APIキー不要、10分毎更新
 const RAINVIEWER_API = "https://api.rainviewer.com/public/weather-maps.json";
@@ -45,6 +44,10 @@ const BLDG_MSSE = { low: 32, medium: 16, high: 8 };
 
 // 簡易建物 (ローカル高さラスタの箱) のインスタンス数上限
 const SIMPLE_BLDG_CAP = 250000;
+
+// 流線パーティクル (LineLayer の軌跡)
+const FLOW_TRAIL = 4;           // 1粒子あたりの軌跡点数
+const FLOW_PARTICLE_CAP = 30;   // 粒子数上限 (多すぎると画面が埋まる)
 
 /**
  * 建物高さラスタから箱型建物のバイナリ属性を組み立てる。
@@ -159,12 +162,16 @@ export class DeckView {
     this._rainOn = false;
     this._rainIntensity = 0;    // mm/h
     this._rainGeom = null;
-    this._rainRaf = 0;
     // 気象レイヤー (降水レーダー)
     this._weatherOn = params.get("weather") === "1";
     this._weatherOpacity = 0.55;
     this._weatherTileUrl = null;
     if (this._weatherOn) this._fetchWeatherTile();
+    // 流線パーティクル
+    this._flowOn = false;
+    this._flowField = null;   // {qx, qy, h, gw, gh, qmax}
+    this._flowParticles = null; // {n, pU, pV, pAge, pLife, trail}
+    this._flowRaf = 0;
   }
 
   async _init() {
@@ -391,6 +398,23 @@ export class DeckView {
       }
     }
     layers.push(...this._rainLayers());
+    // 流線パーティクル (LineLayer の軌跡)
+    if (this._flowOn && this._flowParticles) {
+      const segs = this._flowSegments();
+      if (segs.length) {
+        layers.push(new deck.LineLayer({
+          id: "flow-particles",
+          data: segs,
+          getSourcePosition: (d) => d.sourcePosition,
+          getTargetPosition: (d) => d.targetPosition,
+          getColor: (d) => d.color,
+          getWidth: 1.5,
+          widthUnits: "pixels",
+          opacity: 0.5,
+          blending: "additive",
+        }));
+      }
+    }
     // 分水域・流路オーバーレイ (シミュレーション領域にドレープ)
     if (this._streamsOn && this._streamsImg && this.bbox) {
       layers.push(new deck.BitmapLayer({
@@ -435,6 +459,36 @@ export class DeckView {
     this._renderLayers();
   }
 
+  /** Bilinear terrain height at normalized (u, v). */
+  _terrHeight(u, v) {
+    const d = this._region?.[3]; // terrainData
+    if (!d) return 0;
+    const W = this._region[0], H = this._region[1];
+    const gx = Math.min(Math.max(u * W, 0), W - 1.001);
+    const gy = Math.min(Math.max(v * H, 0), H - 1.001);
+    const x0 = Math.floor(gx), y0 = Math.floor(gy);
+    const x1 = Math.min(W - 1, x0 + 1), y1 = Math.min(H - 1, y0 + 1);
+    const ax = gx - x0, ay = gy - y0;
+    const top = decodeTerrCm(d, y0 * W + x0) * (1 - ax) + decodeTerrCm(d, y0 * W + x1) * ax;
+    const bot = decodeTerrCm(d, y1 * W + x0) * (1 - ax) + decodeTerrCm(d, y1 * W + x1) * ax;
+    return (top * (1 - ay) + bot * ay) / 100; // cm → m
+  }
+
+  /** Bilinear water depth at normalized (u, v). */
+  _stateDepth(u, v) {
+    const d = this._stateData;
+    if (!d) return 0;
+    const W = this.stateW, H = this.stateH;
+    const fx = Math.min(Math.max(u * W - 0.5, 0), W - 1.001);
+    const fy = Math.min(Math.max(v * H - 0.5, 0), H - 1.001);
+    const x0 = Math.floor(fx), y0 = Math.floor(fy);
+    const x1 = Math.min(W - 1, x0 + 1), y1 = Math.min(H - 1, y0 + 1);
+    const ax = fx - x0, ay = fy - y0;
+    const top = d[(y0 * W + x0) * 4] * (1 - ax) + d[(y0 * W + x1) * 4] * ax;
+    const bot = d[(y1 * W + x0) * 4] * (1 - ax) + d[(y1 * W + x1) * 4] * ax;
+    return top * (1 - ay) + bot * ay;
+  }
+
   /** RainViewer API から最新レーダータイルURLを取得する。 */
   async _fetchWeatherTile() {
     try {
@@ -449,7 +503,196 @@ export class DeckView {
       console.warn("RainViewer API取得失敗:", e);
     }
   }
+  setFlowEnabled(v) {
+    this._flowOn = !!v;
+    if (this._flowOn && !this._flowParticles) this._initFlowParticles();
+    if (this._flowOn) this._startFlowTick();
+    else this._stopFlowTick();
+    this._renderLayers();
+  }
 
+  /** 流線パーティクルの初期化 (リージョンサイズに応じて粒子数を決める)。 */
+  _initFlowParticles() {
+    const W = this.stateW || 256, H = this.stateH || 256;
+    const n = Math.min(FLOW_PARTICLE_CAP, Math.round(Math.max(W, H) * 1.5));
+    const trail = new Float32Array(n * FLOW_TRAIL * 3);
+    const p = {
+      n, trail,
+      pU: new Float32Array(n), pV: new Float32Array(n),
+      pAge: new Float32Array(n), pLife: new Float32Array(n),
+      pTn: new Float32Array(n),
+    };
+    for (let i = 0; i < n; i++) {
+      p.pU[i] = Math.random(); p.pV[i] = Math.random();
+      p.pAge[i] = Math.random() * 1200;
+      p.pLife[i] = 1500 + Math.random() * 1600;
+    }
+    this._flowParticles = p;
+  }
+
+  /** シミュレーション状態から粗い流速場を構築 (throttled)。 */
+  _buildFlowField(rgba) {
+    const W = this.stateW, H = this.stateH;
+    const s = Math.max(1, Math.round(Math.max(W, H) / 128));
+    const gw = Math.max(2, Math.floor(W / s));
+    const gh = Math.max(2, Math.floor(H / s));
+    const qx = new Float32Array(gw * gh);
+    const qy = new Float32Array(gw * gh);
+    const h = new Float32Array(gw * gh);
+    let qmax = 0.02;
+    for (let j = 0; j < gh; j++) {
+      const row = H - 1 - Math.min(H - 1, j * s);   // field j = 北から
+      for (let i = 0; i < gw; i++) {
+        const col = Math.min(W - 1, i * s);
+        const k = (row * W + col) * 4;
+        const o = j * gw + i;
+        qx[o] = rgba[k + 1]; qy[o] = rgba[k + 2]; h[o] = rgba[k];
+        const sp = Math.hypot(qx[o], qy[o]);
+        if (sp > qmax) qmax = sp;
+      }
+    }
+    this._flowField = { qx, qy, h, gw, gh, qmax };
+  }
+
+  /** Bilinear field sample; u,v normalized (v = 0 north). */
+  _sampleField(u, v, out) {
+    const f = this._flowField;
+    const fx = Math.min(Math.max(u * f.gw - 0.5, 0), f.gw - 1);
+    const fy = Math.min(Math.max(v * f.gh - 0.5, 0), f.gh - 1);
+    const i0 = Math.floor(fx), j0 = Math.floor(fy);
+    const i1 = Math.min(f.gw - 1, i0 + 1), j1 = Math.min(f.gh - 1, j0 + 1);
+    const ax = fx - i0, ay = fy - j0;
+    const o00 = j0 * f.gw + i0, o10 = j0 * f.gw + i1;
+    const o01 = j1 * f.gw + i0, o11 = j1 * f.gw + i1;
+    const mix2 = (a, b, c, d) => (a + (b - a) * ax) * (1 - ay) + (c + (d - c) * ax) * ay;
+    out.qx = mix2(f.qx[o00], f.qx[o10], f.qx[o01], f.qx[o11]);
+    out.qy = mix2(f.qy[o00], f.qy[o10], f.qy[o01], f.qy[o11]);
+    out.h = mix2(f.h[o00], f.h[o10], f.h[o01], f.h[o11]);
+  }
+
+  /** 粒子を湿ったセルにリスポーン。見つからなければ false。 */
+  _respawn(i, p) {
+    const f = this._flowField;
+    let bu = 0, bv = 0, bh = 0, found = false;
+    for (let a = 0; a < 14; a++) {
+      const u = Math.random(), v = Math.random();
+      const hh = f.h[(Math.min(f.gh - 1, v * f.gh | 0)) * f.gw + Math.min(f.gw - 1, u * f.gw | 0)];
+      if (hh > 0.06) { p.pU[i] = u; p.pV[i] = v; found = true; break; }
+      if (hh > bh) { bh = hh; bu = u; bv = v; }
+    }
+    if (!found) {
+      if (bh > 0.03) { p.pU[i] = bu; p.pV[i] = bv; }
+      else return false;
+    }
+    // リスポーン時は軌跡を全て新位置にリセット
+    const lon = this.bbox[0] + p.pU[i] * (this.bbox[2] - this.bbox[0]);
+    const lat = this.bbox[1] + p.pV[i] * (this.bbox[3] - this.bbox[1]);
+    const bed = this._terrHeight(p.pU[i], p.pV[i]);
+    const hd = this._stateDepth(p.pU[i], p.pV[i]);
+    const z = bed + Math.max(hd, 0) + 0.5 + 0.25 * Math.min(hd, 2);
+    const base = i * FLOW_TRAIL * 3;
+    for (let k = 0; k < FLOW_TRAIL; k++) {
+      p.trail[base + k * 3] = lon;
+      p.trail[base + k * 3 + 1] = lat;
+      p.trail[base + k * 3 + 2] = z;
+    }
+    return true;
+  }
+
+  /** 粒子を移流し、LineLayer 用のセグメント配列を構築。 */
+  _updateFlow(dtMs) {
+    const p = this._flowParticles;
+    if (!p || !this._flowField || !this.bbox) return;
+    const dt = Math.min(dtMs, 50) / 1000;
+    const f = this._flowField;
+    const refU = Math.max(0.3, f.qmax / 0.45);
+    const smp = { qx: 0, qy: 0, h: 0 };
+    const tr = p.trail;
+    const lonSpan = this.bbox[2] - this.bbox[0];
+    const latSpan = this.bbox[3] - this.bbox[1];
+
+    for (let i = 0; i < p.n; i++) {
+      p.pAge[i] += dtMs;
+      this._sampleField(p.pU[i], p.pV[i], smp);
+      let sp = Math.hypot(smp.qx, smp.qy) / Math.max(smp.h, 0.03);
+      if ((smp.h < 0.035 || sp < 0.015 || p.pAge[i] > p.pLife[i]) && this._respawn(i, p)) {
+        p.pAge[i] = 0;
+        this._sampleField(p.pU[i], p.pV[i], smp);
+        sp = Math.hypot(smp.qx, smp.qy) / Math.max(smp.h, 0.03);
+      }
+      const dead = smp.h < 0.03;
+      const tn = Math.min(Math.max(Math.pow(Math.min(Math.max(sp / refU, 0), 1), 0.65), 0), 1);
+      p.pTn[i] = tn;
+      if (!dead) {
+        const inv = 1 / Math.max(sp, 1e-6);
+        // 流速が小さいため、three.js版より速めに移流させて見えるようにする
+        const cellsPerSec = 48 * (0.3 + 0.7 * tn);
+        p.pU[i] += smp.qx * inv * cellsPerSec * dt / this.stateW;
+        p.pV[i] += smp.qy * inv * cellsPerSec * dt / this.stateH;
+        if (p.pU[i] < -0.01 || p.pU[i] > 1.01 || p.pV[i] < -0.01 || p.pV[i] > 1.01) {
+          if (!this._respawn(i, p)) p.pAge[i] = 1e9;
+        }
+      }
+      // trail: 1点ずらして先頭に新しい位置 (lon/lat) を積む
+      const base = i * FLOW_TRAIL * 3;
+      tr.copyWithin(base + 3, base, base + (FLOW_TRAIL - 1) * 3);
+      const e = base + (FLOW_TRAIL - 1) * 3;
+      if (dead) {
+        tr[e] = 0; tr[e + 1] = 0; tr[e + 2] = -1e5;
+      } else {
+        const bed = this._terrHeight(p.pU[i], p.pV[i]);
+        const hd = this._stateDepth(p.pU[i], p.pV[i]);
+        tr[e] = this.bbox[0] + p.pU[i] * lonSpan;
+        tr[e + 1] = this.bbox[1] + p.pV[i] * latSpan;
+        tr[e + 2] = bed + Math.max(hd, 0) + 0.5 + 0.25 * Math.min(hd, 2);
+      }
+    }
+  }
+
+  _startFlowTick() {
+    if (this._flowRaf) return;
+    let last = performance.now();
+    const tick = () => {
+      this._flowRaf = requestAnimationFrame(tick);
+      const now = performance.now();
+      const dt = Math.min(now - last, 100);
+      last = now;
+      this._updateFlow(dt);
+      this._renderLayers();
+    };
+    this._flowRaf = requestAnimationFrame(tick);
+  }
+
+  _stopFlowTick() {
+    if (this._flowRaf) {
+      cancelAnimationFrame(this._flowRaf);
+      this._flowRaf = 0;
+    }
+  }
+
+  /** 流線パーティクルの LineLayer セグメントを構築。 */
+  _flowSegments() {
+    const p = this._flowParticles;
+    if (!p || !this._flowOn) return [];
+    const segs = [];
+    const tr = p.trail;
+    for (let i = 0; i < p.n; i++) {
+      const tn = p.pTn[i];
+      const fade = 0.5 + 0.5 * tn;
+      const r = 0.5 + 0.5 * tn, g = 0.8 + 0.2 * tn, b = 1.0;
+      const base = i * FLOW_TRAIL * 3;
+      for (let k = 0; k < FLOW_TRAIL - 1; k++) {
+        const a0 = base + k * 3, a1 = a0 + 3;
+        const alpha = fade * k / (FLOW_TRAIL - 1);
+        segs.push({
+          sourcePosition: [tr[a0], tr[a0 + 1], tr[a0 + 2]],
+          targetPosition: [tr[a1], tr[a1 + 1], tr[a1 + 2]],
+          color: [r * 255, g * 255, b * 255, alpha * 255],
+        });
+      }
+    }
+    return segs;
+  }
   /** 気象レイヤーの不透明度 (0..1)。 */
   setWeatherOpacity(v) {
     this._weatherOpacity = Math.max(0, Math.min(1, v));
@@ -466,10 +709,11 @@ export class DeckView {
     drawWaterCanvas(cv, rgba, this.stateW, this.stateH, WATER_CANVAS_MAX);
     this._waterFlip = 1 - this._waterFlip;   // 参照が変わることで再アップロード
     this._waterVersion++;
+    // 流線パーティクル用に粗い流速場を更新 (throttled)
+    if (this._flowOn) this._buildFlowField(rgba);
     this._renderLayers();
   }
 
-  setFlowEnabled() { }          // three.js版の流線パーティクルは非対応
   setStreamsVisible(v) {
     this._streamsOn = !!v;
     this._renderLayers();

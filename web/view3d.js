@@ -353,17 +353,19 @@ export class ThreeView {
         // 建物の底面はメッシュ補間の地盤高に合わせる (傾斜地での浮きを防ぐ)
         const ex = Math.min(sx + w, W - 1), ey = Math.min(sy + hh, H - 1);
         const mx = sx + w / 2, my = sy + hh / 2;
-        const bed = (meshBed(sx, sy) + meshBed(ex, sy) + meshBed(sx, ey)
-          + meshBed(ex, ey) + meshBed(mx, my)) / 5;
-        // slope-adaptive skirt below the surface to close residual gaps
-        const r0 = _h(Math.max(sx - step, 0), Math.max(sy - step, 0));
-        const r1 = _h(ex, Math.max(sy - step, 0));
-        const r2 = _h(Math.max(sx - step, 0), ey);
-        const r3 = _h(ex, ey);
-        const localRelief = Math.max(r0, r1, r2, r3) - Math.min(r0, r1, r2, r3);
-        const skirt = Math.max(0.8, localRelief * 0.4);
-        m4.makeScale(w * mPerPx, (bh + skirt) * EXAG, hh * mPerPx);
-        m4.setPosition(mx * mPerPx - cx, (bed + bh / 2) * EXAG - skirt / 2 * EXAG,
+        // footprint 4隅+中心の標高を取り、最低値を底面にする (斜面で浮かない)
+        const c0 = meshBed(sx, sy), c1 = meshBed(ex, sy);
+        const c2 = meshBed(sx, ey), c3 = meshBed(ex, ey);
+        const cc = meshBed(mx, my);
+        const minBed = Math.min(c0, c1, c2, c3, cc);
+        const bed = (c0 + c1 + c2 + c3 + cc) / 5;
+        // 底面は最低標高より少し下、上面は平均標高+建物高
+        const margin = 0.6;
+        const yBottom = minBed - margin;
+        const yTop = bed + bh;
+        const boxH = yTop - yBottom;
+        m4.makeScale(w * mPerPx, boxH * EXAG, hh * mPerPx);
+        m4.setPosition(mx * mPerPx - cx, (yBottom + boxH / 2) * EXAG,
           my * mPerPx - cz);
         inst.setMatrixAt(k, m4);
         // PLATEAU View look: light neutral walls (写真があれば屋上色で上書き)
@@ -615,15 +617,31 @@ export class ThreeView {
   /** Move a particle onto a wet, flowing cell; false when none was found. */
   _respawn(i, p) {
     const f = this._flowField;
-    let bu = 0, bv = 0, bh = 0;
+    let bu = 0, bv = 0, bh = 0, found = false;
     for (let a = 0; a < 14; a++) {
       const u = Math.random(), v = Math.random();
       const hh = f.h[(Math.min(f.gh - 1, v * f.gh | 0)) * f.gw + Math.min(f.gw - 1, u * f.gw | 0)];
-      if (hh > 0.06) { p.pU[i] = u; p.pV[i] = v; return true; }
+      if (hh > 0.06) { p.pU[i] = u; p.pV[i] = v; found = true; break; }
       if (hh > bh) { bh = hh; bu = u; bv = v; }
     }
-    if (bh > 0.03) { p.pU[i] = bu; p.pV[i] = bv; return true; }
-    return false;
+    if (!found) {
+      if (bh > 0.03) { p.pU[i] = bu; p.pV[i] = bv; }
+      else return false;
+    }
+    // リスポーン時は軌跡を全て新位置にリセット (旧位置からの垂直線を防ぐ)
+    const gx = p.pU[i] * this.W, gy = p.pV[i] * this.H;
+    const bed = this._terrHeight(gx, gy);
+    const hd = this._stateDepth(gx, gy);
+    const x = gx * this.dx - this.center[0];
+    const y = (bed + Math.max(hd, 0)) * EXAG + 0.06 * EXAG + 0.25 * Math.min(hd, 2);
+    const z = gy * this.dx - this.center[1];
+    const base = i * FLOW_TRAIL * 3;
+    for (let k = 0; k < FLOW_TRAIL; k++) {
+      p.trail[base + k * 3] = x;
+      p.trail[base + k * 3 + 1] = y;
+      p.trail[base + k * 3 + 2] = z;
+    }
+    return true;
   }
 
   /** Advect particles and rebuild the line buffers for this frame. */
