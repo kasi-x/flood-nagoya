@@ -104,21 +104,24 @@
   サンプリング。
 - CLI: `flood-nagoya validate --region <precomputed dir> [--swot …]
   [--swot-pre …] [--nisar-pre/--nisar-post …] [--s1-pre/--s1-post …]`
-  → `reports/satellite/<region>/validation.json` + overlay PNG。
 
 ### 2026-09-08 洪水での初回結果 (nagoya_univ リージョン)
 - SWOT (9/10 pass-575 vs 8/20 pass-560 ベースライン差分):
   新規水域 23,844セル。F1=0.068 P=0.040 R=0.209。
   モデルは街路網に広く浅い浸水を予測するのに対し、SWOTは池・低地の
   まとまった湛水のみ検出 → 分布型の違いが主な不一致要因。
+  フットプリント比較 (各100mピクセル内のモデル浸水率 vs water_frac)
+  でも相関 -0.014 とほぼ無相関 → モデルの空間分布の較正が課題。
 - NISAR GCOV 上りペア (8/29 vs 9/10, HH): 新規水域 187セルのみ。
   9/10はピークから約2日後で市街地の湛水はほぼ退去済みと解釈。
-  下りペア (8/28 vs 9/9) の方が時相が良い → 検証継続中。
+- NISAR GCOV 下りペア (8/28 vs 9/9, HH): 減少 134 / 増加 2,273セル。
+  増加側が優勢 (市街地洪水の double-bounce 増光と整合) だが、モデル
+  浸水域との空間的一致は弱い (model>=0.1m内の増加は338/2273)。
+  80mポスティングのGCOVでは市街地の小規模湛水を捉えきれない可能性。
 - Sentinel-1 GRD: ASF datapool は Earthdata アプリ承認 (EULA) が必要。
   `https://urs.earthdata.nasa.gov/approve_app?client_id=BO_n7nTIlMljdvU6kRRB3g`
 
 ### 残課題
-- NISAR 下りペア (8/28 vs 9/9) での変化検出 (ダウンロード中)
 - Sentinel-1: EULA承認後に GRD ペア (8/29 vs 9/10) を検証
 - L-band 市街地洪水では double-bounce 増光が支配的な可能性 →
   増光側 (>+3dB) の検出も評価する
