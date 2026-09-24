@@ -192,14 +192,8 @@ def _dispatch(parsed: Namespace) -> None:  # noqa: C901 - one branch per subcomm
         from .validate import run_validation  # noqa: PLC0415 - keep CLI startup fast
         from .validate import summarize  # noqa: PLC0415
 
-        nisar_pair = (
-            (parsed.nisar_pre, parsed.nisar_post)
-            if parsed.nisar_pre and parsed.nisar_post
-            else None
-        )
-        s1_pair = (
-            (parsed.s1_pre, parsed.s1_post) if parsed.s1_pre and parsed.s1_post else None
-        )
+        nisar_pair = (parsed.nisar_pre, parsed.nisar_post) if parsed.nisar_pre and parsed.nisar_post else None
+        s1_pair = (parsed.s1_pre, parsed.s1_post) if parsed.s1_pre and parsed.s1_post else None
         out = parsed.out or Path("reports/satellite") / parsed.region.name
         results = run_validation(
             parsed.region / "meta.json",

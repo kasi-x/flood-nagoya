@@ -21,6 +21,8 @@ from flood_nagoya.satellite import tellus_datasets
 
 
 class _Resp:
+    _payload: bytes
+
     def __init__(self, payload: bytes = b"") -> None:
         self._payload = payload
 
@@ -31,7 +33,7 @@ class _Resp:
         return None
 
     def read(self, size: int = -1) -> bytes:
-        if size is None or size < 0:
+        if size < 0:
             out, self._payload = self._payload, b""
             return out
         out, self._payload = self._payload[:size], self._payload[size:]

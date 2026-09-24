@@ -188,7 +188,7 @@ min_confidence = 80
 # DEP004 pytest: pytest を import するのは tests/（fixture / raises /
 # MonkeyPatch）だけであり、正当な dev 専用利用。mcp_server のテストも同じ
 # ルールに触れるため、エンジン横断で無視する。
-per_rule_ignores = "DEP002=alembic|asgi-correlation-id|asyncpg|click|fastapi|httpx|pydantic|pydantic-settings|pendulum|prometheus-client|rich|slowapi|sqlalchemy|loguru|picologging|typer|uvicorn|ipykernel|marimo|matplotlib|nbclient|nbstripout|openai|plotly|seaborn|wandb,DEP003=flood_nagoya|requests,DEP004=pytest"
+per_rule_ignores = "DEP002=alembic|asgi-correlation-id|asyncpg|click|earthaccess|fastapi|httpx|pydantic|pydantic-settings|pendulum|prometheus-client|pyproj|rich|slowapi|sqlalchemy|loguru|picologging|typer|uvicorn|ipykernel|marimo|matplotlib|nbclient|nbstripout|openai|plotly|seaborn|wandb,DEP003=flood_nagoya|rasterio|requests,DEP004=pytest"
 # tasks.py/duties.py: root-level dev script, not project source -- deptry
 # would otherwise flag invoke/duty as DEP004 (dev-only dep imported by "source")
 exclude = ["tools", ".venv", ".pixi", ".task", "build", "dist"]

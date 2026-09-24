@@ -1,6 +1,6 @@
 // 名古屋市 雨水流出エミュレーター — map view, region selection, UI wiring.
 import { bindBenchHandle, PerfHud, runBench } from "./perf.js?v=26";
-import { FloodSim, MODE_DEPTH, MODE_MAXDEPTH, MODE_SPEED, MODE_TERRAIN } from "./sim.js?v=23";
+import { FloodSim, MODE_DEPTH, MODE_MAXDEPTH, MODE_SPEED, MODE_TERRAIN } from "./sim.js?v=25";
 import { ThreeView } from "./view3d.js?v=23";
 import { CesiumView } from "./view3d_cesium.js?v=30";
 import { DeckView } from "./view3d_deck.js?v=29";
@@ -901,19 +901,33 @@ async function startPlayback(dir) {
     regionInfo.stateW = m.grid.w;
     regionInfo.stateH = m.grid.h;
     const [terrImg, bldgImg] = await Promise.all([
-      loadImage("precomputed/sakai/terrain.png"),
-      loadImage("precomputed/sakai/bldg.png").catch(() => null),
+      loadImage(`precomputed/${playback.dir}/terrain.png`),
+      loadImage(`precomputed/${playback.dir}/bldg.png`).catch(() => null),
     ]);
     const terr2 = imageDataFromImage(terrImg, m.grid.w, m.grid.h);
     const bldg2 = bldgImg ? imageDataFromImage(bldgImg, m.grid.w, m.grid.h).data : null;
     // 分水域・流路オーバーレイ (2D + 3D共通の画像)
-    loadImage("precomputed/sakai/streams.png").then((img) => {
+    loadImage(`precomputed/${playback.dir}/streams.png`).then((img) => {
       sim.streamsTex = sim.makeTexFromImage(img);
       sim.streamsOverlay = $("streamsSimToggle").checked;
       streamsImg = img;
       if (view3ds.three) view3ds.three.setStreamsCanvas(img);
       if (view3ds.deck) view3ds.deck.setStreamsCanvas(img);
       if (view3ds.cesium) view3ds.cesium.setStreamsCanvas(img);
+    }).catch(() => { });
+    // 衛星検証オーバーレイ (precomputed/<dir>/validation/ があれば)
+    const satImg = (name) => loadImage(`precomputed/${playback.dir}/validation/sat_${name}.png`);
+    satImg("swot").catch(() => satImg("nisar")).then((img) => {
+      sim.satTex = sim.makeTexFromImage(img);
+      sim.satOverlay = $("satSimToggle") ? $("satSimToggle").checked : false;
+    }).catch(() => { sim.satTex = null; sim.satOverlay = false; });
+    fetch(`precomputed/${playback.dir}/validation/validation.json`).then((r) => r.ok ? r.json() : null).then((v) => {
+      if (v && $("satInfo")) {
+        const parts = Object.entries(v).map(([k, s]) =>
+          `${k.toUpperCase()}: F1=${s.f1.toFixed(3)} (TP=${s.tp} FP=${s.fp} FN=${s.fn})`);
+        $("satInfo").textContent = "衛星検証 " + parts.join(" / ");
+        $("satInfo").hidden = false;
+      }
     }).catch(() => { });
 
     playback.on = true;
@@ -1273,6 +1287,9 @@ function wireUI() {
     if (view3ds.three) view3ds.three.setStreamsVisible(e.target.checked);
     if (view3ds.deck) view3ds.deck.setStreamsVisible(e.target.checked);
     if (view3ds.cesium) view3ds.cesium.setStreamsVisible(e.target.checked);
+  });
+  if ($("satSimToggle")) $("satSimToggle").addEventListener("change", (e) => {
+    if (sim) sim.satOverlay = e.target.checked;
   });
   $("tabMap").addEventListener("click", () => {
     if (mode === "sim") backToMap();

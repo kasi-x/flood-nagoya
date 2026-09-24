@@ -148,6 +148,8 @@ uniform float uDx;
 uniform int uBldgOn;
 uniform int uMapMode;         // 1: sea/streams styling for the overview
 uniform int uStreamsOn;       // 1: draw the watershed/streams overlay in sim modes
+uniform sampler2D uSat;       // satellite validation overlay (R=sat,G=model,B=agree)
+uniform int uSatOn;           // 1: draw the satellite validation overlay
 uniform float uWaves;
 uniform vec2 uTexel;          // 1/grid, for depth-field gradient
 out vec4 fragColor;
@@ -211,6 +213,12 @@ void main(){
   } else if(uStreamsOn == 1){
     float st = texture(uStreams, uv).r;
     col = mix(col, vec3(0.15, 0.42, 0.66), smoothstep(0.2, 0.9, st)*0.8);
+  }
+  // satellite validation overlay (replay only): blue=sat water, yellow=agree
+  if(uSatOn == 1){
+    vec4 sv = texture(uSat, uv);
+    if(sv.b > 0.5)      col = mix(col, vec3(1.0, 0.85, 0.30), 0.75); // model∩sat
+    else if(sv.r > 0.5) col = mix(col, vec3(0.30, 0.60, 1.00), 0.65); // sat only
   }
 
   float alpha = 1.0;
@@ -345,6 +353,9 @@ export class FloodSim {
     this.reducePrg = program(gl, REDUCE_FRAG);
     this.vao = gl.createVertexArray();
     this.view = { x: 0, y: 0, z: 1 };   // grid px: center + scale (screen px per cell)
+    this.streamsOverlay = false;        // 分水域オーバーレイ (リプレイ2D用)
+    this.satOverlay = false;            // 衛星検証オーバーレイ (リプレイ2D用)
+    this.satTex = null;                 // 衛星検証テクスチャ (R=sat,G=model,B=agree)
     this.params = { rain: 0, drain: 15, infil: 1, manning: 0.03, bldgOn: 1, waves: 1 };
     this.time = 0;                      // simulated seconds
     this.rainLeft = 0;                  // seconds of rain remaining
@@ -620,6 +631,9 @@ export class FloodSim {
     if (this.streamsTex) {
       gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, this.streamsTex); gl.uniform1i(u.uStreams, 3);
     } else { gl.uniform1i(u.uStreams, 0); }
+    if (this.satTex) {
+      gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, this.satTex); gl.uniform1i(u.uSat, 4);
+    } else { gl.uniform1i(u.uSat, 0); }
     gl.uniform2f(u.uGrid, this.W, this.H);
     gl.uniform3f(u.uView, this.view.x, this.view.y, this.view.z);
     gl.uniform2f(u.uCanvas, c.width, c.height);
@@ -629,6 +643,7 @@ export class FloodSim {
     gl.uniform1i(u.uBldgOn, this.params.bldgOn > 0.5 ? 1 : 0);
     gl.uniform1i(u.uMapMode, this.mapMode ? 1 : 0);
     gl.uniform1i(u.uStreamsOn, (!this.mapMode && this.streamsOverlay && this.streamsTex) ? 1 : 0);
+    gl.uniform1i(u.uSatOn, (!this.mapMode && this.satOverlay && this.satTex) ? 1 : 0);
     gl.uniform1f(u.uWaves, this.mapMode ? 0 : (this.params.waves ?? 1));
     if (u.uTexel) gl.uniform2f(u.uTexel, 1 / Math.max(this.W, 1), 1 / Math.max(this.H, 1));
     gl.bindVertexArray(this.vao);
@@ -731,7 +746,7 @@ export class FloodSim {
 
   dispose() {
     const gl = this.gl;
-    for (const k of ["terrainTex", "bldgTex", "streamsTex", "reduceTex"]) {
+    for (const k of ["terrainTex", "bldgTex", "streamsTex", "satTex", "reduceTex"]) {
       if (this[k]) { gl.deleteTexture(this[k]); this[k] = null; }
     }
     if (this.state) for (const t of this.state) gl.deleteTexture(t);

@@ -330,7 +330,7 @@ def swot_on_grid(
     import netCDF4  # noqa: PLC0415 - heavy optional dep
     import rioxarray  # noqa: F401, PLC0415 - registers .rio accessor
     import xarray as xr  # noqa: PLC0415
-    from rasterio.crs import CRS  # noqa: PLC0415
+    from rasterio import CRS  # noqa: PLC0415
     from rasterio.transform import from_bounds  # noqa: PLC0415
 
     ds = netCDF4.Dataset(nc_path)
@@ -464,7 +464,6 @@ def s1_grd_on_grid(
 
 
 def run_validation(  # noqa: PLR0913 - product selection is the API contract
-
     meta_path: Path,
     precomputed_dir: Path,
     *,
@@ -478,7 +477,7 @@ def run_validation(  # noqa: PLR0913 - product selection is the API contract
     """Compare the simulated flood extent against every available product.
 
     Returns ``{product_name: ValidationResult}``; writes a JSON summary and
-    RGB overlay PNGs (model=red, satellite=blue, overlap=yellow) under
+    RGB overlay images (model=red, satellite=blue, overlap=yellow) under
     ``out_dir`` when given.
     """
     from PIL import Image  # noqa: PLC0415 - keep module import light
@@ -536,4 +535,11 @@ def run_validation(  # noqa: PLR0913 - product selection is the API contract
             rgb[sat] = [60, 140, 255]
             rgb[model & sat] = [255, 220, 80]
             Image.fromarray(rgb).save(out / f"overlay_{name}.png")
+            # web viewer texture: R=satellite water, G=model, B=agreement
+            tex = np.zeros((*model.shape, 4), np.uint8)
+            tex[..., 0] = np.where(sat, 255, 0)
+            tex[..., 1] = np.where(model, 255, 0)
+            tex[..., 2] = np.where(model & sat, 255, 0)
+            tex[..., 3] = np.where(sat | model, 200, 0)
+            Image.fromarray(tex, "RGBA").save(out / f"sat_{name}.png")
     return results

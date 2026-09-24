@@ -127,3 +127,10 @@
   増光側 (>+3dB) の検出も評価する
 - SWOT water_frac 閾値の感度解析 (0.5 固定 → 0.3/0.7)
 - モデル過大予測の原因調査: 排水・浸透パラメータの再較定
+
+### Web UI オーバーレイ (2026-09-25)
+- `precompute/<region>/validation/` に `sat_{swot,nisar}.png` (R=衛星水域,
+  G=モデル浸水, B=一致) と `validation.json` を事前計算。
+- リプレイ開始時に自動読み込み。「衛星検証 (SWOT/NISAR)」トグルで
+  2D表示に重畳: 青=衛星のみ検出、黄=モデルと一致。
+- `satInfo` 行に F1/TP/FP/FN を表示。
