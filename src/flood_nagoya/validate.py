@@ -40,6 +40,7 @@ __all__ = [
     "confusion",
     "db",
     "flood_mask",
+    "footprint_fraction",
     "load_sim_hmax",
     "lonlat_to_sim_px",
     "nisar_on_grid",
@@ -47,8 +48,8 @@ __all__ = [
     "run_validation",
     "s1_grd_on_grid",
     "sim_lonlat",
-    "summarize",
     "swot_on_grid",
+    "swot_pixel_ids",
     "swot_water_mask",
 ]
 
@@ -355,6 +356,52 @@ def swot_on_grid(
     da = da.rio.write_crs(src_crs).rio.write_transform(transform)
     warped = da.rio.reproject("EPSG:4326", nodata=np.nan)
     return _sample_on_grid(warped, grid)
+
+
+def swot_pixel_ids(
+    nc_path: Path,
+    grid: GridRef,
+) -> npt.NDArray[np.float64]:
+    """Per-sim-cell source-pixel index of a SWOT tile (for footprint stats).
+
+    Returns a ``(sim_h, sim_w)`` array of flat source-pixel ids (NaN where
+    the sim cell falls outside the tile). Used to aggregate the model's
+    flooded fraction inside each 100 m SWOT footprint — the honest
+    comparison, since ``water_frac`` is itself a coverage fraction.
+    """
+    import netCDF4  # noqa: PLC0415 - heavy optional dep
+
+    ds = netCDF4.Dataset(nc_path)
+    try:
+        lon = np.asarray(ds["longitude"][:], dtype=np.float64)
+        lat = np.asarray(ds["latitude"][:], dtype=np.float64)
+    finally:
+        ds.close()
+    lon = np.where(np.abs(lon) > 1e30, np.nan, lon)
+    lat = np.where(np.abs(lat) > 1e30, np.nan, lat)
+    fin = np.isfinite(lon) & np.isfinite(lat)
+    sx, sy = lonlat_to_sim_px(
+        np.where(fin, lon, np.nan),
+        np.where(fin, lat, np.nan),
+        grid,
+    )
+    ids = np.arange(lon.size, dtype=np.float64).reshape(lon.shape)
+    return reproject_nearest(np.where(fin, ids, np.nan), sx, sy, (grid.sim_h, grid.sim_w))
+
+
+def footprint_fraction(
+    mask: npt.NDArray[np.bool_],
+    pixel_ids: npt.NDArray[np.float64],
+) -> dict[int, float]:
+    """Flooded fraction of ``mask`` inside each source-pixel footprint."""
+    ids = np.asarray(pixel_ids, dtype=np.float64).ravel()
+    m = np.asarray(mask, dtype=bool).ravel()
+    ok = np.isfinite(ids)
+    out: dict[int, float] = {}
+    for pid in np.unique(ids[ok].astype(np.int64)):
+        sel = ok & (ids == pid)
+        out[int(pid)] = float(np.mean(m[sel]))
+    return out
 
 
 def nisar_on_grid(
