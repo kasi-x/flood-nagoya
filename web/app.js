@@ -1,6 +1,6 @@
 // 名古屋市 雨水流出エミュレーター — map view, region selection, UI wiring.
 import { bindBenchHandle, PerfHud, runBench } from "./perf.js?v=26";
-import { FloodSim, MODE_DEPTH, MODE_MAXDEPTH, MODE_SPEED, MODE_TERRAIN } from "./sim.js?v=25";
+import { FloodSim, MODE_DEPTH, MODE_MAXDEPTH, MODE_SPEED, MODE_TERRAIN } from "./sim.js?v=26";
 import { ThreeView } from "./view3d.js?v=23";
 import { CesiumView } from "./view3d_cesium.js?v=30";
 import { DeckView } from "./view3d_deck.js?v=29";
@@ -681,6 +681,22 @@ function updateLabels() {
       loc.el.style.left = (sx / dpr) + "px";
       loc.el.style.top = (sy / dpr) + "px";
     }
+  }
+  // 選択済みシミュレーション範囲を赤枠で囲む (region px -> overview px -> screen)
+  const ro = $("regionOutline");
+  if (regionInfo && mode === "map") {
+    const k = regionInfo.dx / meta.overviewMPerPx;   // region px per overview px
+    const x0 = (regionInfo.left * k - mapView.x) * mapView.z + canvas.width / 2;
+    const y0 = canvas.height - ((regionInfo.top * k - mapView.y) * mapView.z + canvas.height / 2);
+    const x1 = ((regionInfo.left + regionInfo.W) * k - mapView.x) * mapView.z + canvas.width / 2;
+    const y1 = canvas.height - (((regionInfo.top + regionInfo.H) * k - mapView.y) * mapView.z + canvas.height / 2);
+    ro.hidden = false;
+    ro.style.left = (Math.min(x0, x1) / dpr) + "px";
+    ro.style.top = (Math.min(y0, y1) / dpr) + "px";
+    ro.style.width = (Math.abs(x1 - x0) / dpr) + "px";
+    ro.style.height = (Math.abs(y1 - y0) / dpr) + "px";
+  } else {
+    ro.hidden = true;
   }
 }
 

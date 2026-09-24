@@ -380,6 +380,11 @@ input[type="range"]::-moz-range-thumb {
   border: 2px dashed var(--accent); background: rgba(0, 165, 190, 0.08); border-radius: 4px;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5);
 }
+#regionOutline {
+  position: fixed; z-index: 7; pointer-events: none;
+  border: 2px solid #e33; border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.6), inset 0 0 0 1px rgba(255,255,255,0.3);
+}
 #selinfo {
   position: absolute; top: -26px; left: 0; background: var(--panel-strong);
   border: 1px solid var(--panel-line); color: var(--text);
