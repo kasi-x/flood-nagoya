@@ -157,6 +157,12 @@ precompute-surge sea_level:
 precompute-underground:
     uv run --locked python -m flood_nagoya precompute --underground
 
+
+# Precompute with the 1D river-channel model (catchment → stage → overflow)
+
+precompute-river:
+    uv run --locked python -m flood_nagoya precompute --river
+
 # Full data pipeline: DEM + buildings + web assets (after `just sync`)
 
 setup:
