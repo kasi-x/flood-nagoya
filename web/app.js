@@ -1423,6 +1423,8 @@ function set3d(on) {
       view3ds.deck.setStreamsVisible($("streamsSimToggle").checked);
       if (streamsImg) view3ds.deck.setStreamsCanvas(streamsImg);
       view3ds.deck.setBuildingSource(bldgSrc);
+      view3ds.deck.setTerrainQuality(terrainQuality);
+      view3ds.deck.setBuildingLoad(deckLod);
       view3ds.deck.setFlowEnabled(flow.on);
     }
     toast(`3D表示中 (${view3dKind}) — ドラッグで回転・ホイールでズーム・右ドラッグで移動`);

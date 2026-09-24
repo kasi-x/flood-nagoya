@@ -742,6 +742,7 @@ export class DeckView {
 
   /** 建物LOD切替 ("1"|"2") — 軽さ比較用 */
   setBuildingLoad(lod) {
+    if (lod === this._lod) return;
     this._lod = lod;
     this._bldgUrl = null;
     if (this.bbox && this._bldgMode === "plateau") {
