@@ -3,7 +3,7 @@ import { bindBenchHandle, PerfHud, runBench } from "./perf.js?v=26";
 import { FloodSim, MODE_DEPTH, MODE_MAXDEPTH, MODE_SPEED, MODE_TERRAIN } from "./sim.js?v=23";
 import { ThreeView } from "./view3d.js?v=23";
 import { CesiumView } from "./view3d_cesium.js?v=27";
-import { DeckView } from "./view3d_deck.js?v=27";
+import { DeckView } from "./view3d_deck.js?v=28";
 import { extractChannels } from "./river.js?v=2";
 
 const Z15 = 15;
@@ -1412,7 +1412,7 @@ function set3d(on) {
     // three.js / deck.gl 専用オプションの表示切替
     $("exagCtl").hidden = view3dKind !== "three";
     $("waveCtl").hidden = view3dKind !== "three";
-    $("flowCtl").hidden = view3dKind !== "three";
+    $("flowCtl").hidden = view3dKind === "cesium";
     $("rainCtl").hidden = view3dKind !== "deck";
     $("weatherCtl").hidden = view3dKind !== "deck";
     $("bldgSrcCtl").hidden = view3dKind !== "deck";

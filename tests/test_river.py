@@ -66,11 +66,12 @@ def test_river_excess_depth_lagged_rise() -> None:
     z = _synthetic_dem()
     field = extract_channels(z, dx=5.0)
     series = [[0.0, 0.0], [3600.0, 100.0], [3601.0, 0.0]]
-    # At t=600 s every channel cell's lag exceeds 600 s, so the lagged
-    # rate is the pre-storm zero — while the current rate is already ~17.
-    lagged = river_excess_depth(field, series=series, t=600.0)
+    # The earliest convolution tap is t - 0.5·lag; at t=400 every
+    # channel cell's earliest tap precedes the storm (min lag ≈ 900 s),
+    # while the current rate is already ~11 mm/h.
+    lagged = river_excess_depth(field, series=series, t=400.0)
     assert lagged.max() == 0.0
-    current = river_excess_depth(field, 100.0 * 600.0 / 3600.0)
+    current = river_excess_depth(field, 100.0 * 400.0 / 3600.0)
     assert current.max() > 0.0
 
 

@@ -108,15 +108,20 @@ void main(){
   }
   float h1 = h + uDt/uDx * (inW - qE + inN - qS) - loss + rainMS * uDt;
   // 河道溢水: 集水域→流量→Manning水位→bankfull超過分を強制水深として注入。
-  // 時系列降雨ではセル毎の集中時間ラグだけ過去の降雨強度を使う
+  // 時系列降雨では三角単位 hydrograph (ピーク=lag, 底辺=2·lag) で畳み込み、
+  // セル毎の集中時間に応じて放流が遅れかつ減衰する
   // (空間分布レインテクスチャは履歴を持たないため現行レートのまま)。
   if (uRiverOn > 0.5) {
     vec4 rv = texelFetch(uRiver, P, 0);
     if (rv.r > 0.0) {   // channel cell (area > 0)
       float lag = texelFetch(uRiverLag, P, 0).r;
-      float rMS = (uSeriesN > 0.5 && uRainTexOn < 0.5)
-        ? seriesRateAt(uTime - lag) / 1000.0 / 3600.0
-        : rainMS;
+      float rMS = rainMS;
+      if (uSeriesN > 0.5 && uRainTexOn < 0.5) {
+        float mmh = 0.25 * seriesRateAt(uTime - 0.5 * lag)
+                  + 0.50 * seriesRateAt(uTime - 1.0 * lag)
+                  + 0.25 * seriesRateAt(uTime - 1.5 * lag);
+        rMS = mmh / 1000.0 / 3600.0;
+      }
       float q = 0.65 * rMS * rv.r;                          // m³/s
       float stage = pow(q * 0.035 / max(rv.b * sqrt(rv.g), 1e-9), 0.6);
       h1 = max(h1, stage - rv.a);                           // excess over bankfull

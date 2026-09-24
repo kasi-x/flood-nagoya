@@ -3,9 +3,9 @@
  * Channel cells are extracted from the terrain raster by D8 flow
  * accumulation (no sink filling — a screening approximation).  Each cell's
  * discharge follows the rational method (runoff coeff × intensity ×
- * upstream area) evaluated at the rainfall rate one concentration-time
- * lag in the past; Manning's equation converts it to a stage; depth above
- * bankfull spills onto the 2D grid as a prescribed water depth.
+ * upstream area) with the hyetograph convolved by a triangular unit
+ * hydrograph peaking at the cell's concentration-time lag; Manning's
+ * equation converts it to a stage; depth above
  *
  * The field is computed once per region and re-used every frame; only the
  * scalar rain rate changes.

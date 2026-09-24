@@ -1,10 +1,11 @@
 """1D river-channel model coupled to the 2D surface flood grid.
 
 Each channel cell carries a steady-state discharge estimated from its
-upstream contributing area and the rainfall intensity one
-concentration-time lag in the past (rational method with a per-cell
-lag).  Manning's equation converts that discharge to a channel depth;
-depth above the bankfull level spills onto the 2D floodplain as a
+upstream contributing area and the rainfall hyetograph convolved with a
+triangular unit hydrograph spanning the cell's concentration-time lag
+(rational method with per-cell routing).  Manning's equation converts
+that discharge to a channel depth; depth above the bankfull level
+spills onto the 2D floodplain as a
 prescribed water depth, exactly like the coastal sea-level boundary.
 
 This is a screening model: it captures the first-order physics of riverine
@@ -108,12 +109,12 @@ def river_excess_depth(
     depth is what the 2D grid receives.
 
     With a scalar ``rain_mmh`` the current rate is used (steady state —
-    lag has no effect under constant rain).  With ``series`` + ``t`` each
-    cell instead uses the rate at ``t - lag_s`` interpolated from the
-    hyetograph, so discharge rises and recedes with the catchment's
-    concentration-time lag.  Series semantics match ``rain_rate_at``:
-    piecewise-linear between nodes, the first rate before the series
-    start, and zero after its end.
+    routing has no effect under constant rain).  With ``series`` + ``t``
+    each cell instead convolves the hyetograph with a triangular unit
+    hydrograph peaking at ``lag_s`` (base 2·lag, 3-tap quadrature), so
+    discharge both lags and attenuates with catchment size.  Series
+    semantics match ``rain_rate_at``: piecewise-linear between nodes,
+    the first rate before the series start, and zero after its end.
     """
     h, w = field.mask.shape
     out = np.zeros((h, w), dtype=np.float32)
@@ -124,9 +125,15 @@ def river_excess_depth(
             return out
         ts = np.asarray([p[0] for p in series], dtype=np.float64)
         rs = np.asarray([p[1] for p in series], dtype=np.float64)
-        # Per-cell lagged intensity: rain that fell lag_s ago is what
-        # reaches the channel now.
-        rate = np.interp(t - field.lag_s, ts, rs, left=rs[0], right=0.0)
+        # Triangular unit hydrograph: peak at lag, base 2·lag.
+        # Trapezoidal quadrature -> taps at {0.5, 1.0, 1.5}·lag with
+        # weights {0.25, 0.5, 0.25} (sums to 1: steady state preserved).
+        lag = field.lag_s
+        rate = (
+            0.25 * np.interp(t - 0.5 * lag, ts, rs, left=rs[0], right=0.0)
+            + 0.50 * np.interp(t - 1.0 * lag, ts, rs, left=rs[0], right=0.0)
+            + 0.25 * np.interp(t - 1.5 * lag, ts, rs, left=rs[0], right=0.0)
+        )
     else:
         if rain_mmh <= 0.0:
             return out

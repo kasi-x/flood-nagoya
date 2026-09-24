@@ -447,3 +447,51 @@ def test_run_precompute_simulation_with_underground(tmp_path: Path) -> None:
     assert (tmp_path / "underground_0000.png").exists()
     assert float(volumes[0]) > 0.0  # water entered the underground store
     assert len(times) > 0
+
+
+def test_run_precompute_simulation_with_river(tmp_path: Path) -> None:
+    """A channel field forces water depth on channel cells during the run."""
+    from flood_nagoya.precompute import _run_precompute_simulation
+    from flood_nagoya.river import ChannelField
+
+    region = _tiny_region()
+    n = region.elev.shape[0]
+    mask = np.zeros((n, n), dtype=bool)
+    mask[:, n // 2] = True  # channel down the middle column
+    river_field = ChannelField(
+        mask=mask,
+        area_m2=np.where(mask, 5e6, 0.0),
+        slope=np.full((n, n), 0.01),
+        width_m=np.where(mask, 5.6, 0.0),
+        depth_m=np.where(mask, 0.6, 0.0),
+        lag_s=np.zeros((n, n)),
+    )
+    series = [[0.0, 0.0], [600.0, 50.0], [1200.0, 0.0]]
+    hmax, times, _stats = _run_precompute_simulation(
+        region,
+        tmp_path,
+        series,
+        dt=60.0,
+        frame_interval=300.0,
+        loss_ms=0.0,
+        sea_level_m=0.0,
+        progress=False,
+        river_field=river_field,
+    )
+    assert len(times) > 0
+    # Channel cells are forced to the Manning excess depth (~1.3 m at
+    # 50 mm/h over 5 km²), far above rain-only accumulation elsewhere.
+    assert float(hmax[mask].min()) > 1.0
+    (tmp_path / "noriver").mkdir()
+    hmax_noriver, _t2, _s2 = _run_precompute_simulation(
+        region,
+        tmp_path / "noriver",
+        series,
+        dt=60.0,
+        frame_interval=300.0,
+        loss_ms=0.0,
+        sea_level_m=0.0,
+        progress=False,
+    )
+    # The river adds well over a metre of peak depth versus rain alone.
+    assert float(hmax.max()) > float(hmax_noriver.max()) + 1.0
