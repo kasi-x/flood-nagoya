@@ -141,3 +141,4 @@ web/scenarios/
 # superdesign design canvas state
 .superdesign/
 web/precomputed/
+reports/
