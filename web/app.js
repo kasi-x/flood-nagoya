@@ -1,10 +1,10 @@
 // 名古屋市 雨水流出エミュレーター — map view, region selection, UI wiring.
 import { bindBenchHandle, PerfHud, runBench } from "./perf.js?v=26";
-import { FloodSim, MODE_DEPTH, MODE_MAXDEPTH, MODE_SPEED, MODE_TERRAIN } from "./sim.js?v=22";
+import { FloodSim, MODE_DEPTH, MODE_MAXDEPTH, MODE_SPEED, MODE_TERRAIN } from "./sim.js?v=23";
 import { ThreeView } from "./view3d.js?v=23";
 import { CesiumView } from "./view3d_cesium.js?v=27";
 import { DeckView } from "./view3d_deck.js?v=27";
-import { extractChannels } from "./river.js?v=1";
+import { extractChannels } from "./river.js?v=2";
 
 const Z15 = 15;
 const EARTH = 40075016.686;

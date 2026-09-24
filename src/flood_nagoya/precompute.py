@@ -435,7 +435,7 @@ def _run_precompute_simulation(
         if river_field is not None:
             from .river import river_excess_depth  # noqa: PLC0415
 
-            river_excess = river_excess_depth(river_field, rain_rate_at(series, t))
+            river_excess = river_excess_depth(river_field, series=series, t=t)
         if underground_on:
             assert zones is not None and zone_props is not None and volumes is not None
             volumes[:], sink = step_underground(zones, h, dt, volumes, zone_props)

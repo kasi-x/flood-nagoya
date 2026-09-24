@@ -27,9 +27,27 @@ uniform sampler2D uRainTex;   // observed spatial rain; count = 0.5 mm/h
 uniform vec4 uRainXForm;      // frag px -> rain uv: uv = frag*xy + zw
 uniform float uRainTexOn;
 uniform sampler2D uRiver;     // R=area m², G=slope, B=width m, A=bankfull m
+uniform sampler2D uRiverLag;  // R=concentration-time lag s
+uniform sampler2D uRainSeries;// 1D hyetograph (R=mm/h, 60 s bins, NEAREST)
+uniform float uSeriesStart;   // series[0][0] in model seconds
+uniform float uSeriesDt;      // seconds per hyetograph bin
+uniform float uSeriesN;       // bin count (0 = no series)
+uniform float uTime;          // model time s (for lagged river discharge)
 uniform float uRiverOn;
 uniform float uDt, uDx, uG, uManning, uRain, uDrain, uInfil, uBldgOn;
 out vec4 oState;
+
+// Hyetograph rate at model time t (mm/h): piecewise-linear between bins,
+// first rate before the start, zero after the end — same as rainRateAt().
+float seriesRateAt(float t){
+  float x = (t - uSeriesStart) / uSeriesDt - 0.5;
+  float i0 = floor(x), f = x - i0;
+  int n = int(uSeriesN);
+  float r0 = texelFetch(uRainSeries, ivec2(clamp(int(i0),     0, n - 1), 0), 0).r;
+  float r1 = texelFetch(uRainSeries, ivec2(clamp(int(i0) + 1, 0, n - 1), 0), 0).r;
+  return mix(r0, r1, clamp(f, 0.0, 1.0));
+}
+
 
 float elev(ivec2 p){
   vec4 t = texelFetch(uTerrain, clamp(p, ivec2(0), textureSize(uTerrain,0)-1), 0);
@@ -89,11 +107,17 @@ void main(){
     rainMS = mmh / 1000.0 / 3600.0;
   }
   float h1 = h + uDt/uDx * (inW - qE + inN - qS) - loss + rainMS * uDt;
-  // 河道溢水: 集水域→流量→Manning水位→bankfull超過分を強制水深として注入
+  // 河道溢水: 集水域→流量→Manning水位→bankfull超過分を強制水深として注入。
+  // 時系列降雨ではセル毎の集中時間ラグだけ過去の降雨強度を使う
+  // (空間分布レインテクスチャは履歴を持たないため現行レートのまま)。
   if (uRiverOn > 0.5) {
     vec4 rv = texelFetch(uRiver, P, 0);
     if (rv.r > 0.0) {   // channel cell (area > 0)
-      float q = 0.65 * rainMS * rv.r;                       // m³/s
+      float lag = texelFetch(uRiverLag, P, 0).r;
+      float rMS = (uSeriesN > 0.5 && uRainTexOn < 0.5)
+        ? seriesRateAt(uTime - lag) / 1000.0 / 3600.0
+        : rainMS;
+      float q = 0.65 * rMS * rv.r;                          // m³/s
       float stage = pow(q * 0.035 / max(rv.b * sqrt(rv.g), 1e-9), 0.6);
       h1 = max(h1, stage - rv.a);                           // excess over bankfull
     }
@@ -326,6 +350,12 @@ export class FloodSim {
     this.rainXForm = [1, 1, 0, 0];      // frag px -> frame uv
     this.streamsOverlay = false;        // 分水域オーバーレイ (リプレイ2D用)
     this.riverTex = null;               // 河道パラメータ (R=area,G=slope,B=width,A=bankfull)
+    this.riverLagTex = null;            // 河道の集中時間ラグ (R=lag s)
+    this.rainSeriesTex = null;          // ハイエトグラフ1Dテクスチャ (ラグ付き河道流量用)
+    this._seriesTexSrc = null;          // rainSeriesTex の元配列 (変更検出用)
+    this.seriesBins = 0;                // uRainSeries のビン数
+    this.seriesDt = 60;                 // ハイエトグラフのビン幅 [s]
+    this.seriesStart = 0;               // 系列の開始時刻 [s]
     this.riverOn = false;               // 河川氾濫モデル有効フラグ
     this.paused = true;
     this.volume0 = 0;
@@ -425,18 +455,21 @@ export class FloodSim {
   /**
    * Upload the river-channel field (from river.js extractChannels) as an
    * RGBA32F texture: R=area m², G=slope, B=width m, A=bankfull depth m.
+   * The per-cell concentration-time lag goes to a separate R32F texture.
    * Pass null to disable the river model.
    */
   setRiverField(field) {
     const gl = this.gl;
     if (!field) { this.riverOn = false; return; }
-    const { W, H, area, slope, width, depth } = field;
+    const { W, H, area, slope, width, depth, lag } = field;
     const buf = new Float32Array(W * H * 4);
+    const lagBuf = new Float32Array(W * H);
     for (let i = 0; i < W * H; i++) {
-      buf[i * 4] = area[i];
+      buf[i * 4 + 0] = area[i];
       buf[i * 4 + 1] = slope[i];
       buf[i * 4 + 2] = width[i];
       buf[i * 4 + 3] = depth[i];
+      lagBuf[i] = lag ? lag[i] : 0;
     }
     if (!this.riverTex) this.riverTex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, this.riverTex);
@@ -445,7 +478,40 @@ export class FloodSim {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, W, H, 0, gl.RGBA, gl.FLOAT, buf);
+    if (!this.riverLagTex) this.riverLagTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.riverLagTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, W, H, 0, gl.RED, gl.FLOAT, lagBuf);
     this.riverOn = true;
+  }
+
+  /**
+   * (Re)build the 1D hyetograph texture used for lagged river discharge.
+   * Resampled to uniform 60 s bins; the shader lerps between bin centres.
+   * A trailing zero bin makes post-series lookups return 0.
+   */
+  _updateSeriesTex() {
+    const s = this.rainSeries;
+    if (s === this._seriesTexSrc) return;
+    this._seriesTexSrc = s;
+    const gl = this.gl;
+    if (!s || s.length === 0) { this.seriesBins = 0; return; }
+    const dt = this.seriesDt;
+    const n = Math.max(2, Math.ceil((s[s.length - 1][0] - s[0][0]) / dt) + 2);
+    const buf = new Float32Array(n);
+    for (let i = 0; i < n - 1; i++) buf[i] = this.rainRateAt(s[0][0] + i * dt);
+    if (!this.rainSeriesTex) this.rainSeriesTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.rainSeriesTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, n, 1, 0, gl.RED, gl.FLOAT, buf);
+    this.seriesBins = n;
+    this.seriesStart = s[0][0];
   }
 
   /** Rain intensity at model time t (mm/h); constant rate when no series. */
@@ -496,7 +562,14 @@ export class FloodSim {
     gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, this.bldgTex);    gl.uniform1i(u.uBldg, 2);
     gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, this.rainTex);   gl.uniform1i(u.uRainTex, 3);
     gl.activeTexture(gl.TEXTURE4); gl.bindTexture(gl.TEXTURE_2D, this.riverTex);  gl.uniform1i(u.uRiver, 4);
+    this._updateSeriesTex();
+    gl.activeTexture(gl.TEXTURE5); gl.bindTexture(gl.TEXTURE_2D, this.riverLagTex);  gl.uniform1i(u.uRiverLag, 5);
+    gl.activeTexture(gl.TEXTURE6); gl.bindTexture(gl.TEXTURE_2D, this.rainSeriesTex); gl.uniform1i(u.uRainSeries, 6);
     gl.uniform1f(u.uRiverOn, this.riverOn && this.riverTex ? 1 : 0);
+    gl.uniform1f(u.uSeriesStart, this.seriesStart);
+    gl.uniform1f(u.uSeriesDt, this.seriesDt);
+    gl.uniform1f(u.uSeriesN, this.seriesBins);
+    gl.uniform1f(u.uTime, this.time);
     gl.uniform4f(u.uRainXForm, this.rainXForm[0], this.rainXForm[1], this.rainXForm[2], this.rainXForm[3]);
     const p = this.params;
     const rainOn = this.rainLeft > 0 && !this.paused;

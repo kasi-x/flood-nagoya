@@ -15,11 +15,17 @@ import { decodeTerrCm, drawWaterCanvas, loadScript, mergeBuildingRects, pickBldg
 const DECK_URL = "lib/deck.gl.min.js";
 
 // 地形タイル: AWS Terrain Tiles (terrarium) — CORS有り・欠測なしの全球DEM。
+// GSI dem5a_png は都市部に欠測 (0x80,0,0 → 327.68mと解釈されスパイク化) が
+// 多いため、deck.glのストリーミング地形には使わない (精度は three.js/Cesium
+// ビュワーのローカル5mDEM側で担保する)。
 // 注意: terrariumは標高基準がPLATEAU建物 (楕円体高) と合っていない。
 // 名古屋中心z15タイルでの dem5a_png (正標高) との差は中央値で約+12m
 // (参考: GSIGEO2011のジオイド高は名古屋で約+37mではない。terrariumの
 // 日本域の標高が何基準かは未確認のため、PLATEAU実寸建物との組み合わせでは
 // 基準の一致は保証されない)。
+const TERRAIN_URL = "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png";
+// terrarium: 標高(m) = (R*256 + G + B/8) - 32768
+const ELEVATION_DECODER = { rScaler: 256, gScaler: 1, bScaler: 0.125, offset: -32768 };
 const GSI_ORT_URL = "https://cyberjapandata.gsi.go.jp/xyz/ort/{z}/{x}/{y}.jpg";
 // RainViewer 降水レーダー — 無料・APIキー不要、10分毎更新
 const RAINVIEWER_API = "https://api.rainviewer.com/public/weather-maps.json";

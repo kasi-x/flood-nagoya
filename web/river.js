@@ -3,7 +3,8 @@
  * Channel cells are extracted from the terrain raster by D8 flow
  * accumulation (no sink filling — a screening approximation).  Each cell's
  * discharge follows the rational method (runoff coeff × intensity ×
- * upstream area); Manning's equation converts it to a stage; depth above
+ * upstream area) evaluated at the rainfall rate one concentration-time
+ * lag in the past; Manning's equation converts it to a stage; depth above
  * bankfull spills onto the 2D grid as a prescribed water depth.
  *
  * The field is computed once per region and re-used every frame; only the
@@ -76,6 +77,7 @@ export function extractChannels(terrainData, W, H, dx) {
   const slope = new Float64Array(W * H);
   const width = new Float64Array(W * H);
   const depth = new Float64Array(W * H);
+  const lag = new Float64Array(W * H);
   for (let i = 0; i < W * H; i++) {
     if (acc[i] < ACC_THRESHOLD_CELLS) continue;
     mask[i] = 1;
@@ -97,26 +99,9 @@ export function extractChannels(terrainData, W, H, dx) {
     } else {
       slope[i] = MIN_SLOPE;
     }
+    // concentration-time lag ~ A^0.3 hours (Kirpich-style, coarse)
+    lag[i] = Math.pow(Math.max(km2, 0.01), 0.3) * 3600;
   }
-  return { mask, area, slope, width, depth, W, H };
+  return { mask, area, slope, width, depth, lag, W, H };
 }
 
-/**
- * Per-cell river overflow depth [m] for a given rainfall intensity.
- * Returns a Float32Array (W*H) suitable for upload as a texture.
- */
-export function riverExcessDepth(field, rainMmh) {
-  const { mask, area, slope, width, depth, W, H } = field;
-  const out = new Float32Array(W * H);
-  if (rainMmh <= 0) return out;
-  const intensity = rainMmh / 1000 / 3600;  // m/s
-  for (let i = 0; i < W * H; i++) {
-    if (!mask[i]) continue;
-    const q = RUNOFF_COEFF * intensity * area[i];            // m³/s
-    const denom = Math.max(width[i] * Math.sqrt(slope[i]), 1e-9);
-    const stage = Math.pow((q * MANNING_RIVER) / denom, 0.6); // Manning depth
-    const ex = stage - depth[i];
-    if (ex > 0) out[i] = ex;
-  }
-  return out;
-}

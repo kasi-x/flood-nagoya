@@ -59,3 +59,47 @@ def test_river_excess_depth_no_channels() -> None:
     field = extract_channels(z, dx=5.0)
     out = river_excess_depth(field, 100.0)
     assert out.max() == 0.0
+
+
+def test_river_excess_depth_lagged_rise() -> None:
+    """Early in a storm the channel still sees pre-storm (zero) rain."""
+    z = _synthetic_dem()
+    field = extract_channels(z, dx=5.0)
+    series = [[0.0, 0.0], [3600.0, 100.0], [3601.0, 0.0]]
+    # At t=600 s every channel cell's lag exceeds 600 s, so the lagged
+    # rate is the pre-storm zero — while the current rate is already ~17.
+    lagged = river_excess_depth(field, series=series, t=600.0)
+    assert lagged.max() == 0.0
+    current = river_excess_depth(field, 100.0 * 600.0 / 3600.0)
+    assert current.max() > 0.0
+
+
+def test_river_excess_depth_lagged_recession() -> None:
+    """After rain stops the channel keeps discharging for one lag."""
+    z = _synthetic_dem()
+    field = extract_channels(z, dx=5.0)
+    series = [[0.0, 0.0], [3600.0, 100.0], [3601.0, 0.0]]
+    # Current rate is 0 but cells with lag > 100 s still see the storm.
+    lagged = river_excess_depth(field, series=series, t=3700.0)
+    assert lagged.max() > 0.0
+    # Once every cell's lag has passed the storm, discharge ceases.
+    drained = river_excess_depth(field, series=series, t=20000.0)
+    assert drained.max() == 0.0
+
+
+def test_river_excess_depth_series_matches_scalar_at_steady_state() -> None:
+    """A constant-rate series equals the scalar path once lagged rates saturate."""
+    z = _synthetic_dem()
+    field = extract_channels(z, dx=5.0)
+    series = [[0.0, 50.0], [7200.0, 50.0]]
+    lagged = river_excess_depth(field, series=series, t=3600.0)
+    scalar = river_excess_depth(field, 50.0)
+    np.testing.assert_allclose(lagged, scalar, rtol=1e-5, atol=1e-6)
+
+
+def test_river_excess_depth_empty_series() -> None:
+    """An empty hyetograph injects nothing (guard against interp on no nodes)."""
+    z = _synthetic_dem()
+    field = extract_channels(z, dx=5.0)
+    out = river_excess_depth(field, series=[], t=100.0)
+    assert out.max() == 0.0

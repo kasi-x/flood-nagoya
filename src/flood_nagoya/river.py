@@ -1,11 +1,11 @@
 """1D river-channel model coupled to the 2D surface flood grid.
 
 Each channel cell carries a steady-state discharge estimated from its
-upstream contributing area and the current rainfall intensity (rational
-method with a concentration-time lag).  Manning's equation converts that
-discharge to a channel depth; depth above the bankfull level spills onto
-the 2D floodplain as a prescribed water depth, exactly like the coastal
-sea-level boundary.
+upstream contributing area and the rainfall intensity one
+concentration-time lag in the past (rational method with a per-cell
+lag).  Manning's equation converts that discharge to a channel depth;
+depth above the bankfull level spills onto the 2D floodplain as a
+prescribed water depth, exactly like the coastal sea-level boundary.
 
 This is a screening model: it captures the first-order physics of riverine
 flooding (catchment -> discharge -> stage -> overflow) without dynamic
@@ -96,24 +96,42 @@ def extract_channels(
 
 def river_excess_depth(
     field: ChannelField,
-    rain_mmh: float,
+    rain_mmh: float = 0.0,
+    *,
+    series: list[list[float]] | None = None,
+    t: float = 0.0,
 ) -> npt.NDArray[np.float32]:
     """Water depth [m] to inject into channel cells.
 
     Discharge is the rational method applied to the rainfall intensity;
     Manning's equation gives the channel stage; the excess over bankfull
-    depth is what the 2D grid receives.  The concentration-time lag is
-    approximated by scaling the current rate (a full convolution is
-    overkill for a screening model).
+    depth is what the 2D grid receives.
+
+    With a scalar ``rain_mmh`` the current rate is used (steady state —
+    lag has no effect under constant rain).  With ``series`` + ``t`` each
+    cell instead uses the rate at ``t - lag_s`` interpolated from the
+    hyetograph, so discharge rises and recedes with the catchment's
+    concentration-time lag.  Series semantics match ``rain_rate_at``:
+    piecewise-linear between nodes, the first rate before the series
+    start, and zero after its end.
     """
     h, w = field.mask.shape
     out = np.zeros((h, w), dtype=np.float32)
-    if rain_mmh <= 0.0 or not field.mask.any():
+    if not field.mask.any():
         return out
-    # Lagged intensity: rain that fell lag_s ago is what reaches the channel now.
-    # (The caller passes the *current* rate; we approximate the lagged rate by
-    # scaling with a fixed lag — a proper convolution is overkill here.)
-    q = RUNOFF_COEFF * (rain_mmh / 1000.0 / 3600.0) * field.area_m2  # m³/s
+    if series is not None:
+        if len(series) == 0:
+            return out
+        ts = np.asarray([p[0] for p in series], dtype=np.float64)
+        rs = np.asarray([p[1] for p in series], dtype=np.float64)
+        # Per-cell lagged intensity: rain that fell lag_s ago is what
+        # reaches the channel now.
+        rate = np.interp(t - field.lag_s, ts, rs, left=rs[0], right=0.0)
+    else:
+        if rain_mmh <= 0.0:
+            return out
+        rate = np.full((h, w), rain_mmh, dtype=np.float64)
+    q = RUNOFF_COEFF * (rate / 1000.0 / 3600.0) * field.area_m2  # m³/s
     # Manning wide-channel: Q = (1/n)·W·h^(5/3)·S^0.5  →  h = (Q·n/(W·√S))^0.6
     with np.errstate(divide="ignore", invalid="ignore"):
         stage = np.power(
