@@ -397,6 +397,8 @@ def test_precompute_full_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
         dt=60.0,
         frame_interval=300.0,
         progress=False,
+        river=True,
+        underground=True,
     )
     assert (out / "frame_0000.png").exists()
     assert (out / "terrain.png").exists()
@@ -495,3 +497,13 @@ def test_run_precompute_simulation_with_river(tmp_path: Path) -> None:
     )
     # The river adds well over a metre of peak depth versus rain alone.
     assert float(hmax.max()) > float(hmax_noriver.max()) + 1.0
+
+
+def test_coastal_mask_tiny_grid() -> None:
+    """Grids too small for a margin mark every low cell as coastal."""
+    from flood_nagoya.precompute import _coastal_mask
+
+    elev = np.array([[1.0, 10.0], [10.0, 1.0]], dtype=np.float32)
+    mask = _coastal_mask(elev, margin=2, z_thresh=5.0)
+    # 2x2 < 2*margin → all cells are border; only low-elevation ones pass.
+    assert mask.tolist() == [[True, False], [False, True]]
