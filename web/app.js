@@ -185,12 +185,17 @@ function init() {
   }).catch(() => toast("meta.json を読み込めません。`python -m flood_nagoya build` を実行してください"));
 
   // 初回起動ダイアログ: 起動オプションを選ばせる (localStorageで記憶)
+  // ダイアログ表示中は既定シーン (栄リプレイ/フォールバック) を自動開始しない。
+  // ユーザーの選択がシーンを決める。範囲を自分で選ぶ場合のみ既定シーンを
+  // 背景として立ち上げる。
   const welcomeDlg = $("welcomeDlg");
   const welcomeSeen = localStorage.getItem("flood-nagoya-welcome-seen");
   if (!welcomeSeen && welcomeDlg) {
     welcomeDlg.showModal();
+    let chosen = false;
     for (const btn of welcomeDlg.querySelectorAll(".welcome-opt")) {
       btn.addEventListener("click", () => {
+        chosen = true;
         const action = btn.dataset.action;
         const regionIdx = btn.dataset.region;
         if ($("welcomeSkip").checked) localStorage.setItem("flood-nagoya-welcome-seen", "1");
@@ -204,10 +209,16 @@ function init() {
           const first = document.querySelector("#replayList button");
           if (first) first.click();
           else toast("リプレイデータがありません。`python -m flood_nagoya precompute` を実行してください");
+        } else {
+          // "map" など: 範囲選択の背景として既定シーンを立ち上げる
+          startDefaultScene();
         }
-        // "map" は何もしない (地図で範囲選択に進む)
       });
     }
+    // Esc や backdrop で選ばずに閉じた場合も、地図の背景として既定シーンを出す。
+    welcomeDlg.addEventListener("close", () => {
+      if (!chosen) startDefaultScene();
+    });
   }
   // 事前計算リプレイのカタログ (あれば地図パネルにボタン一覧を出す)
   playback.available().then((ok) => {
@@ -356,7 +367,9 @@ async function setupMap() {
     loc.el = el;
   }
 
-  startDefaultScene();
+  // ダイアログが開いている間は既定シーンを始めない (ユーザーの選択を待つ)。
+  // ダイアログを出さない場合 (2回目以降) は従来どおり自動開始する。
+  if (!$("welcomeDlg")?.open) startDefaultScene();
 }
 
 /** 起動時の既定シーン: 栄エリアの事前計算リプレイ (無ければライブ計算でフォールバック)。 */
