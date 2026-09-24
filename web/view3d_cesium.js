@@ -182,6 +182,95 @@ function applyHeightOffset(tileset, offset) {
   tileset.modelMatrix = Cesium.Matrix4.fromTranslation(translation);
 }
 
+/* ---------------------------------------------------------------- */
+/* 水面メッシュ: 地形に追従する頂点変位メッシュで水深を立体表示する。   */
+/* 地形高さは表示中の terrain provider を sampleTerrain で疎に測り、    */
+/* ローカルDEMとの残差を補間して頂点高に使う (垂直基準ずれを吸収)。     */
+/* 水深は RGBA8 テクスチャ (cm, R*256+G) を頂点シェーダで参照し、       */
+/* 新規冠水セルは uFront テクスチャの wet-since 年齢で琥珀色に光らせる。*/
+/* ---------------------------------------------------------------- */
+// GLSL3 (WebGL2): Cesium 1.132 は #version 300 es を前置し、
+// varying/texture2D/gl_FragColor は使えない。in/out/texture/out_FragColor を使う。
+// GLSL3 (WebGL2)。material の fabric.source で uDepth/uFront/uUp を参照すると
+// createUniform が uDepth_0/uFront_1/uUp_2 に改名して _uniforms に登録する。
+// 頂点・フラグメント両方でその改名後の名前を使う。
+const WATER_VERT = `
+in vec3 position3DHigh;
+in vec3 position3DLow;
+in vec2 st;
+in float batchId;
+uniform sampler2D uDepth_0; // depth m = (R*255*256 + G*255)/100
+uniform vec3 uUp_2;         // 地域中心のECEF上方向 (水深で持ち上げる)
+out vec2 v_st;
+out float v_depth;
+void main() {
+  v_st = st;
+  vec4 t = texture(uDepth_0, st);
+  float d = (t.r * 255.0 * 256.0 + t.g * 255.0) / 100.0;
+  v_depth = d;
+  vec4 p = czm_computePosition();
+  p.xyz += uUp_2 * max(d, 0.0);   // ECEF上方向に水深分だけ持ち上げる
+  gl_Position = czm_modelViewProjectionRelativeToEye * p;
+}`;
+
+const WATER_FRAG = `
+// uFront は material.shaderSource で宣言済み (前置される)
+in vec2 v_st;
+in float v_depth;
+vec3 depthRamp(float d) {
+  vec3 c = mix(vec3(0.82, 0.95, 1.00), vec3(0.33, 0.71, 0.95), smoothstep(0.03, 0.20, d));
+  c = mix(c, vec3(0.18, 0.45, 0.91), smoothstep(0.20, 0.50, d));
+  c = mix(c, vec3(0.16, 0.29, 0.81), smoothstep(0.50, 1.00, d));
+  c = mix(c, vec3(0.26, 0.21, 0.72), smoothstep(1.00, 2.00, d));
+  c = mix(c, vec3(0.36, 0.18, 0.62), smoothstep(2.00, 3.50, d));
+  return c;
+}
+void main() {
+  if (v_depth < 0.01) discard;
+  vec3 c = depthRamp(v_depth);
+  // 新規冠水フロント: wet-since 年齢が浅いほど琥珀色に発光 (~90sで減衰)
+  float age = texture(uFront_1, v_st).r * 255.0 * 4.0;
+  float front = (age < 90.0) ? exp(-age / 30.0) : 0.0;
+  c = mix(c, vec3(1.0, 0.72, 0.22), front * 0.8);
+  float a = clamp(v_depth * 5.0, 0.18, 0.92);
+  out_FragColor = vec4(c, a);
+}`;
+
+const WATER_MESH_NX = 160;          // 水面メッシュの頂点数 (x)
+const TERRAIN_SAMPLE_N = 22;        // sampleTerrain の疎グリッド幅
+const FLOW_N = 320;                 // 流線パーティクル数
+const FLOW_TRAIL = 7;               // 1粒子の軌跡点数
+const FRONT_WET_M = 0.05;           // 「冠水」とみなす水深
+
+/** RGBA8テクスチャを作る (depth cm-pack / front age 用)。 */
+function makeDataTex(Cesium, ctx, w, h, u8) {
+  return new Cesium.Texture({
+    context: ctx,
+    width: w,
+    height: h,
+    pixelFormat: Cesium.PixelFormat.RGBA,
+    pixelDatatype: Cesium.PixelDatatype.UNSIGNED_BYTE,
+    source: { arrayBufferView: u8, width: w, height: h },
+    flipY: false,   // row0 = v=0 = 南 (state配列の向きに合わせる)
+    sampler: new Cesium.Sampler({
+      minificationFilter: Cesium.TextureMinificationFilter.LINEAR,
+      magnificationFilter: Cesium.TextureMagnificationFilter.LINEAR,
+    }),
+  });
+}
+
+/** ローカルDEM (RGBA cm, row0=北) の双線形補間。u,v ∈ [0,1]、v=0 が南。 */
+function demHeightAt(data, W, H, u, v) {
+  const fx = Math.min(Math.max(u * (W - 1), 0), W - 1.001);
+  const fy = Math.min(Math.max((1 - v) * (H - 1), 0), H - 1.001);
+  const x0 = Math.floor(fx), y0 = Math.floor(fy);
+  const x1 = Math.min(W - 1, x0 + 1), y1 = Math.min(H - 1, y0 + 1);
+  const ax = fx - x0, ay = fy - y0;
+  const dec = (i) => (data[i * 4] * 65536 + data[i * 4 + 1] * 256 + data[i * 4 + 2]) / 100;
+  const top = dec(y0 * W + x0) * (1 - ax) + dec(y0 * W + x1) * ax;
+  const bot = dec(y1 * W + x0) * (1 - ax) + dec(y1 * W + x1) * ax;
+  return top * (1 - ay) + bot * ay;
+}
 export class CesiumView {
   name = "cesium";
 
@@ -200,6 +289,26 @@ export class CesiumView {
     this._waterCanvas = document.createElement("canvas");
     this._lastWaterAt = 0;
     this._frameCount = 0;
+    // 水面メッシュ (地形追従の頂点変位) とフォールバック用フラットレイヤ
+    this._waterPrim = null;
+    this._waterAppearance = null;
+    this._depthTex = null;
+    this._frontTex = null;
+    this._frontAge = null;    // Float32Array セル毎の wet-since 秒
+    this._wet = null;         // Uint8Array 冠水フラグ
+    this._terrGrid = null;    // {n, heights} sampleTerrain の疎グリッド
+    this._terrOff = 0;        // ローカルDEM→表示地形のオフセット (fallback用)
+    this._meshPromise = null;
+    // 流線パーティクル (PolylineCollection の軌跡)
+    this._flowOn = false;
+    this._flow = null;        // {n, pU, pV, pAge, pLife, carts, lines}
+    this._flowField = null;   // {qx, qy, h, gw, gh, qmax}
+    this._polylines = null;
+    this._lastFlowAt = 0;
+    // 分水域・流路オーバーレイ
+    this._streamsLayer = null;
+    this._streamsOn = false;
+    this._streamsCanvas = null;
   }
 
   async _init() {
@@ -222,12 +331,15 @@ export class CesiumView {
       timeline: false, fullscreenButton: false, infoBox: false,
       selectionIndicator: false,
       contextOptions: { webgl: { preserveDrawingBuffer: true } },
+      // 3D専用: 2D/Columbus用の boundingSphereCV 計算を省き、
+      // FLOAT位置のカスタムPrimitiveが projectTo2D で落ちるのを防ぐ
+      scene3DOnly: true,
     });
     this.viewer = viewer;
     this.canvas = viewer.canvas;   // スクリーンショット用 (app.js互換)
     viewer.scene.globe.depthTestAgainstTerrain = true;   // 記事の設定
     viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#9cc0e0");
-    viewer.scene.postRender.addEventListener(() => { this._frameCount++; });
+    viewer.scene.postRender.addEventListener(() => { this._frameCount++; this._stepFlow(); });
     if (this._pendingRegion) this.setRegion(...this._pendingRegion);
     return this;
   }
@@ -260,11 +372,33 @@ export class CesiumView {
 
   setRegion(W, H, mPerPx, terrainData, bldgData, photoCanvas, stateW, stateH) {
     this._pendingRegion = [W, H, mPerPx, terrainData, bldgData, photoCanvas, stateW, stateH];
-    if (!this.viewer) return;
     this.stateW = stateW || W;
     this.stateH = stateH || H;
+    this._regionTerrain = terrainData ? { data: terrainData, W, H } : null;
     this.bbox = regionBBox({ W, H, dx: mPerPx, left: this._left || 0, top: this._top || 0 },
       window.__meta, window.__overviewFactor || 4);
+    // リージョン変更: 水面メッシュ・冠水履歴・流線を作り直す
+    this._frontAge = null;
+    this._wet = null;
+    this._terrGrid = null;
+    this._meshPromise = null;
+    this._flowField = null;
+    if (this._waterPrim) {
+      this.viewer.scene.primitives.remove(this._waterPrim);
+      this._waterPrim = null;
+      this._waterAppearance = null;
+    }
+    if (this._waterLayer) {
+      this.viewer.imageryLayers.remove(this._waterLayer, true);
+      this._waterLayer = null;
+    }
+    if (this._streamsLayer) {
+      this.viewer.imageryLayers.remove(this._streamsLayer, true);
+      this._streamsLayer = null;
+      this._streamsOn = false;
+    }
+    this._initFlow();
+    this._ensureWaterMesh();
     const [west, south, east, north] = this.bbox;
     const lonC = (west + east) / 2, latC = (south + north) / 2;
     // 範囲の対角 (~km) からカメラ距離を決め、南西から見下ろす。
@@ -309,12 +443,33 @@ export class CesiumView {
     }
   }
 
-  /** シミュレーション状態 → 水深キャンバス → 地形にドレープする画像レイヤ。 */
+  /**
+   * シミュレーション状態 → 水面メッシュの水深テクスチャを更新。
+   * メッシュ未準備の間だけフラットな画像レイヤにフォールバックする。
+   */
   updateWater(rgba) {
     if (!this.viewer || !this.bbox) return;
     const now = performance.now();
     if (now - this._lastWaterAt < 250) return;
     this._lastWaterAt = now;
+    this._stateData = rgba;
+    this._buildFlowField(rgba);
+    this._updateFront(rgba);
+    if (this._waterAppearance) {
+      this._uploadWaterTextures(rgba);
+      // メッシュが立ち上がったらフラットレイヤは外す
+      if (this._waterLayer) {
+        this.viewer.imageryLayers.remove(this._waterLayer, true);
+        this._waterLayer = null;
+      }
+      return;
+    }
+    this._ensureWaterMesh();
+    this._updateWaterImagery(rgba);
+  }
+
+  /** フォールバック: 水深キャンバスを地形にドレープする画像レイヤ。 */
+  _updateWaterImagery(rgba) {
     drawWaterCanvas(this._waterCanvas, rgba, this.stateW, this.stateH, 1024);
     this._waterCanvas.toBlob(async (blob) => {
       if (!blob || !this.viewer) return;
@@ -335,11 +490,415 @@ export class CesiumView {
     }, "image/png");
   }
 
-  setFlowEnabled() { }
-  setStreamsVisible() { }
+  /**
+   * 表示中の地形を疎にサンプリングし、ローカルDEMとの残差グリッドを作る。
+   * 水面メッシュの頂点高は ローカルDEM + 残差補間 で求める
+   * (楕円体高/正標高の基準差を吸収するため)。
+   */
+  async _sampleTerrainGrid() {
+    const Cesium = window.Cesium;
+    const [west, south, east, north] = this.bbox;
+    const n = TERRAIN_SAMPLE_N;
+    const positions = [];
+    for (let j = 0; j < n; j++) {
+      for (let i = 0; i < n; i++) {
+        positions.push(Cesium.Cartographic.fromDegrees(
+          west + (east - west) * i / (n - 1),
+          south + (north - south) * j / (n - 1)));
+      }
+    }
+    try {
+      await Cesium.sampleTerrain(this.viewer.terrainProvider, 14, positions);
+      const heights = new Float64Array(n * n);
+      for (let i = 0; i < n * n; i++) heights[i] = positions[i].height || 0;
+      this._terrGrid = { n, heights };
+    } catch (e) {
+      // 自前GSI provider 等で sampleTerrain が使えない場合は
+      // ローカルDEM + 平均ジオイド差 (~37m) に退避する
+      console.warn("terrain sampling failed; using local DEM + offset", e);
+      this._terrGrid = null;
+      this._terrOff = 37;
+    }
+  }
+
+  /** 表示地形の高さ [m] (u,v ∈ [0,1]、v=0 が南)。 */
+  _terrainHeightAt(u, v) {
+    const g = this._terrGrid;
+    if (!g) {
+      const t = this._regionTerrain;
+      return t ? demHeightAt(t.data, t.W, t.H, u, v) + this._terrOff : this._terrOff;
+    }
+    const n = g.n;
+    const fx = Math.min(Math.max(u * (n - 1), 0), n - 1.001);
+    const fy = Math.min(Math.max(v * (n - 1), 0), n - 1.001);
+    const x0 = Math.floor(fx), y0 = Math.floor(fy);
+    const x1 = Math.min(n - 1, x0 + 1), y1 = Math.min(n - 1, y0 + 1);
+    const ax = fx - x0, ay = fy - y0;
+    const top = g.heights[y0 * n + x0] * (1 - ax) + g.heights[y0 * n + x1] * ax;
+    const bot = g.heights[y1 * n + x0] * (1 - ax) + g.heights[y1 * n + x1] * ax;
+    return top * (1 - ay) + bot * ay;
+  }
+
+  /**
+   * 水面メッシュを構築する。頂点はローカルENU座標 (中心原点)、
+   * 高さは表示地形 + 頂点シェーダでの水深変位。
+   */
+  async _ensureWaterMesh() {
+    if (this._meshPromise || this._waterAppearance || !this.viewer || !this.bbox) return;
+    this._meshPromise = (async () => {
+      const Cesium = window.Cesium;
+      const [west, south, east, north] = this.bbox;
+      if (!this._terrGrid) await this._sampleTerrainGrid();
+      const nx = WATER_MESH_NX;
+      const ny = Math.max(8, Math.round(nx * this.stateH / this.stateW));
+      const lonC = (west + east) / 2, latC = (south + north) / 2;
+      const mPerDegLon = 111320 * Math.cos(Cesium.Math.toRadians(latC));
+      const mPerDegLat = 110540;
+      const wM = (east - west) * mPerDegLon, hM = (north - south) * mPerDegLat;
+      const pos = new Float32Array(nx * ny * 3);
+      const st = new Float32Array(nx * ny * 2);
+      // 位置はECEFで直接作る (modelMatrix=恒等)。ローカルENUだと
+      // boundingSphereCV の projectTo2D が (0,0,0) 中心で失敗するため。
+      for (let j = 0; j < ny; j++) {
+        for (let i = 0; i < nx; i++) {
+          const u = i / (nx - 1), v = j / (ny - 1);
+          const lon = west + (east - west) * u;
+          const lat = south + (north - south) * v;
+          const c = Cesium.Cartesian3.fromDegrees(lon, lat, this._terrainHeightAt(u, v));
+          const k = (j * nx + i) * 3;
+          pos[k] = c.x; pos[k + 1] = c.y; pos[k + 2] = c.z;
+          const s = (j * nx + i) * 2;
+          st[s] = u; st[s + 1] = v;
+        }
+      }
+      const idx = new Uint32Array((nx - 1) * (ny - 1) * 6);
+      let o = 0;
+      for (let j = 0; j < ny - 1; j++) {
+        for (let i = 0; i < nx - 1; i++) {
+          const a = j * nx + i, b = a + 1, c = a + nx, d = c + 1;
+          idx[o++] = a; idx[o++] = c; idx[o++] = b;
+          idx[o++] = b; idx[o++] = c; idx[o++] = d;
+        }
+      }
+      const geo = new Cesium.Geometry({
+        attributes: {
+          position: new Cesium.GeometryAttribute({
+            componentDatatype: Cesium.ComponentDatatype.FLOAT,
+            componentsPerAttribute: 3,
+            values: pos,
+          }),
+          st: new Cesium.GeometryAttribute({
+            componentDatatype: Cesium.ComponentDatatype.FLOAT,
+            componentsPerAttribute: 2,
+            values: st,
+          }),
+        },
+        indices: idx,
+        primitiveType: Cesium.PrimitiveType.TRIANGLES,
+        boundingSphere: Cesium.BoundingSphere.fromPoints(
+          Array.from({ length: nx * ny }, (_, i) =>
+            new Cesium.Cartesian3(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]))),
+      });
+      // 水深/フロントは canvas ユニフォーム (fabric で sampler2D として登録)。
+      // Cesium.Texture を直接渡すと getUniformType が .type を読めず落ちるため、
+      // canvas を渡して material.update() にテクスチャ化させる。
+      this._depthCanvas = document.createElement("canvas");
+      this._depthCanvas.width = this.stateW; this._depthCanvas.height = this.stateH;
+      this._frontCanvas = document.createElement("canvas");
+      this._frontCanvas.width = this.stateW; this._frontCanvas.height = this.stateH;
+      const material = new Cesium.Material({
+        fabric: {
+          type: "WaterDepth",
+          uniforms: {
+            uDepth: this._depthCanvas,
+            uFront: this._frontCanvas,
+            uUp: Cesium.Cartesian3.normalize(
+              Cesium.Cartesian3.fromDegrees(lonC, latC, 0), new Cesium.Cartesian3()),
+          },
+          // source 内で各ユニフォームを参照すると createUniform が
+          // uDepth_0/uFront_1/uUp_2 に改名して宣言・バインドする。
+          // 本体の色計算は fragmentShaderSource 側で行うのでここでは参照だけ。
+          source: "czm_material czm_getMaterial(czm_materialInput materialInput) {\n"
+            + "  czm_material m = czm_getDefaultMaterial(materialInput);\n"
+            + "  m.diffuse = texture(uDepth, materialInput.st).rgb + texture(uFront, materialInput.st).rgb + uUp;\n"
+            + "  return m;\n"
+            + "}\n",
+        },
+      });
+      this._waterAppearance = new Cesium.Appearance({
+        vertexShaderSource: WATER_VERT,
+        fragmentShaderSource: WATER_FRAG,
+        material: material,
+        renderState: {
+          depthTest: { enabled: true },
+          depthMask: false,
+          blending: Cesium.BlendingState.ALPHA_BLEND,
+        },
+      });
+      this._waterPrim = new Cesium.Primitive({
+        geometryInstances: [new Cesium.GeometryInstance({ geometry: geo })],
+        appearance: this._waterAppearance,
+        asynchronous: false,
+        // batchId は allowPicking=true のときだけ頂点属性として宣言される。
+        // false だと appendPickToVertexShader が未定義の batchId を参照して落ちる。
+        allowPicking: true,
+      });
+      this.viewer.scene.primitives.add(this._waterPrim);
+    })().catch((e) => {
+      console.warn("水面メッシュの構築に失敗 (フラットレイヤに継続): ", e);
+      this._waterAppearance = null;
+    });
+    await this._meshPromise;
+  }
+
+  /** 水深・冠水年齢テクスチャを最新の状態で作り直す。 */
+  _uploadWaterTextures(rgba) {
+    const Cesium = window.Cesium;
+    const ctx = this.viewer.scene.context;
+    const n = this.stateW * this.stateH;
+    const depth = new Uint8Array(n * 4);
+    const front = new Uint8Array(n * 4);
+    for (let i = 0; i < n; i++) {
+      const cm = Math.min(65535, Math.max(0, Math.round(rgba[i * 4] * 100)));
+      depth[i * 4] = cm >> 8;
+      depth[i * 4 + 1] = cm & 0xff;
+      depth[i * 4 + 3] = 255;
+      const age = Math.min(255, Math.round(this._frontAge[i] / 4));
+      front[i * 4] = age;
+      front[i * 4 + 3] = 255;
+    }
+    // 実行時は Texture を直接代入できる (update関数が instanceof Texture を処理)。
+    // 旧テクスチャは material.update() が破棄するのでここでは触らない。
+    const u = this._waterAppearance.material.uniforms;
+    u.uDepth = makeDataTex(Cesium, ctx, this.stateW, this.stateH, depth);
+    u.uFront = makeDataTex(Cesium, ctx, this.stateW, this.stateH, front);
+  }
+
+  /** 冠水フロント: 各セルの wet-since 年齢を更新する。 */
+  _updateFront(rgba) {
+    const n = this.stateW * this.stateH;
+    if (!this._frontAge || this._frontAge.length !== n) {
+      this._frontAge = new Float32Array(n).fill(1e9);
+      this._wet = new Uint8Array(n);
+      this._frontAt = performance.now();
+      return;
+    }
+    const now = performance.now();
+    const dt = Math.min(5, (now - this._frontAt) / 1000);
+    this._frontAt = now;
+    for (let i = 0; i < n; i++) {
+      const wet = rgba[i * 4] > FRONT_WET_M ? 1 : 0;
+      if (wet && !this._wet[i]) this._frontAge[i] = 0;
+      else this._frontAge[i] += dt;
+      this._wet[i] = wet;
+    }
+  }
+
+  /* ---------------- 流線パーティクル (台風の流線風) ---------------- */
+
+  /** 粗い qx/qy/depth グリッドを状態からサンプル (行0=南)。 */
+  _buildFlowField(rgba) {
+    const W = this.stateW, H = this.stateH;
+    const s = Math.max(1, Math.round(Math.max(W, H) / 128));
+    const gw = Math.max(2, Math.floor(W / s));
+    const gh = Math.max(2, Math.floor(H / s));
+    const qx = new Float32Array(gw * gh);
+    const qy = new Float32Array(gw * gh);
+    const h = new Float32Array(gw * gh);
+    let qmax = 0.02;
+    for (let j = 0; j < gh; j++) {
+      const row = Math.min(H - 1, j * s);   // field j = 南から (state行と同じ)
+      for (let i = 0; i < gw; i++) {
+        const col = Math.min(W - 1, i * s);
+        const k = (row * W + col) * 4;
+        const o = j * gw + i;
+        qx[o] = rgba[k + 1]; qy[o] = rgba[k + 2]; h[o] = rgba[k];
+        const sp = Math.hypot(qx[o], qy[o]);
+        if (sp > qmax) qmax = sp;
+      }
+    }
+    this._flowField = { qx, qy, h, gw, gh, qmax };
+  }
+
+  /** 双線形フィールドサンプル。u,v ∈ [0,1]、v=0 が南。 */
+  _sampleFlow(u, v, out) {
+    const f = this._flowField;
+    const fx = Math.min(Math.max(u * f.gw - 0.5, 0), f.gw - 1.001);
+    const fy = Math.min(Math.max(v * f.gh - 0.5, 0), f.gh - 1.001);
+    const i0 = Math.floor(fx), j0 = Math.floor(fy);
+    const i1 = Math.min(f.gw - 1, i0 + 1), j1 = Math.min(f.gh - 1, j0 + 1);
+    const ax = fx - i0, ay = fy - j0;
+    const mix2 = (a, b, c, d) => a + (b - a) * ax + (c - a) * ay + (a - b - c + d) * ax * ay;
+    out.qx = mix2(f.qx[j0 * f.gw + i0], f.qx[j0 * f.gw + i1],
+      f.qx[j1 * f.gw + i0], f.qx[j1 * f.gw + i1]);
+    out.qy = mix2(f.qy[j0 * f.gw + i0], f.qy[j0 * f.gw + i1],
+      f.qy[j1 * f.gw + i0], f.qy[j1 * f.gw + i1]);
+    out.h = mix2(f.h[j0 * f.gw + i0], f.h[j0 * f.gw + i1],
+      f.h[j1 * f.gw + i0], f.h[j1 * f.gw + i1]);
+  }
+
+  /** パーティクルと PolylineCollection を初期化する。 */
+  _initFlow() {
+    const Cesium = window.Cesium;
+    if (this._polylines) {
+      this.viewer.scene.primitives.remove(this._polylines);
+      this._polylines = null;
+    }
+    this._flow = null;
+    if (!this._flowOn || !this.viewer) return;
+    const coll = this.viewer.scene.primitives.add(new Cesium.PolylineCollection());
+    const n = FLOW_N;
+    const p = {
+      n,
+      pU: new Float64Array(n), pV: new Float64Array(n),
+      pAge: new Float64Array(n), pLife: new Float64Array(n),
+      carts: [], lines: [],
+    };
+    for (let i = 0; i < n; i++) {
+      p.pU[i] = Math.random(); p.pV[i] = Math.random();
+      p.pAge[i] = Math.random() * 1200;
+      p.pLife[i] = 1500 + Math.random() * 1600;
+      const carts = [];
+      for (let k = 0; k < FLOW_TRAIL; k++) carts.push(new Cesium.Cartesian3());
+      p.carts.push(carts);
+      const line = coll.add({
+        positions: carts,
+        width: 1.6,
+        material: Cesium.Material.fromType("Color", {
+          color: new Cesium.Color(0.5, 0.85, 1.0, 0.0),
+        }),
+      });
+      line.show = false;
+      p.lines.push(line);
+    }
+    this._polylines = coll;
+    this._flow = p;
+  }
+
+  /** 湿ったセルへ粒子を再配置し、軌跡を現位置に潰す。 */
+  _respawnFlow(i) {
+    const p = this._flow, f = this._flowField;
+    let bu = 0, bv = 0, bh = 0, found = false;
+    for (let a = 0; a < 14; a++) {
+      const u = Math.random(), v = Math.random();
+      const hh = f.h[Math.min(f.gh - 1, v * f.gh | 0) * f.gw + Math.min(f.gw - 1, u * f.gw | 0)];
+      if (hh > 0.06) { p.pU[i] = u; p.pV[i] = v; found = true; break; }
+      if (hh > bh) { bh = hh; bu = u; bv = v; }
+    }
+    if (!found) {
+      if (bh > 0.03) { p.pU[i] = bu; p.pV[i] = bv; }
+      else return false;
+    }
+    const c = this._flowCart(p.pU[i], p.pV[i]);
+    for (const cart of p.carts[i]) Cesium.Cartesian3.clone(c, cart);
+    p.lines[i].positions = p.carts[i];
+    return true;
+  }
+
+  /** u,v → 水面直上の Cartesian3 (水平のみ、下方向ベクターなし)。 */
+  _flowCart(u, v) {
+    const Cesium = window.Cesium;
+    const [west, south, east, north] = this.bbox;
+    const lon = west + (east - west) * u;
+    const lat = south + (north - south) * v;
+    const smp = this._flowSmp || (this._flowSmp = { qx: 0, qy: 0, h: 0 });
+    this._sampleFlow(u, v, smp);
+    const z = this._terrainHeightAt(u, v) + Math.max(smp.h, 0) + 0.4;
+    return Cesium.Cartesian3.fromDegrees(lon, lat, z);
+  }
+
+  /** postRender から呼ばれる粒子移流 (約15fpsに間引き)。 */
+  _stepFlow() {
+    const p = this._flow;
+    if (!p || !this._flowOn || !this._flowField || !this.bbox) return;
+    const now = performance.now();
+    if (now - this._lastFlowAt < 66) return;
+    const dt = Math.min(now - this._lastFlowAt, 100) / 1000;
+    this._lastFlowAt = now;
+    const f = this._flowField;
+    const refU = Math.max(0.3, f.qmax / 0.45);
+    const smp = this._flowSmp || (this._flowSmp = { qx: 0, qy: 0, h: 0 });
+    const Cesium = window.Cesium;
+    for (let i = 0; i < p.n; i++) {
+      p.pAge[i] += dt * 1000;
+      this._sampleFlow(p.pU[i], p.pV[i], smp);
+      let sp = Math.hypot(smp.qx, smp.qy) / Math.max(smp.h, 0.03);
+      if ((smp.h < 0.035 || sp < 0.015 || p.pAge[i] > p.pLife[i]) && this._respawnFlow(i)) {
+        p.pAge[i] = 0;
+        this._sampleFlow(p.pU[i], p.pV[i], smp);
+        sp = Math.hypot(smp.qx, smp.qy) / Math.max(smp.h, 0.03);
+      }
+      const dead = smp.h < 0.03;
+      const line = p.lines[i];
+      if (dead) { line.show = false; continue; }
+      const tn = Math.min(1, Math.pow(Math.min(sp / refU, 1), 0.65));
+      const inv = 1 / Math.max(sp, 1e-6);
+      const cellsPerSec = 32 * (0.3 + 0.7 * tn);
+      p.pU[i] += smp.qx * inv * cellsPerSec * dt / f.gw;
+      p.pV[i] += smp.qy * inv * cellsPerSec * dt / f.gh;
+      if (p.pU[i] < -0.01 || p.pU[i] > 1.01 || p.pV[i] < -0.01 || p.pV[i] > 1.01) {
+        if (!this._respawnFlow(i)) { line.show = false; p.pAge[i] = 1e9; continue; }
+      }
+      // 軌跡: 1点ずらして先頭に新位置 (実際の流路を描く、直線ではない)
+      const carts = p.carts[i];
+      for (let k = 0; k < FLOW_TRAIL - 1; k++) {
+        Cesium.Cartesian3.clone(carts[k + 1], carts[k]);
+      }
+      Cesium.Cartesian3.clone(this._flowCart(p.pU[i], p.pV[i]), carts[FLOW_TRAIL - 1]);
+      line.positions = carts;
+      line.show = true;
+      line.material.uniforms.color = new Cesium.Color(
+        0.45 + 0.5 * tn, 0.8 + 0.2 * tn, 1.0, 0.25 + 0.6 * tn);
+    }
+  }
+
+  setFlowEnabled(v) {
+    this._flowOn = !!v;
+    if (v && !this._flow) this._initFlow();
+    if (this._polylines) this._polylines.show = !!v;
+  }
+
+  /** 分水域・流路オーバーレイ (streams.png) を地形にドレープする。 */
+  setStreamsVisible(v) {
+    this._streamsOn = !!v;
+    if (this._streamsLayer) this._streamsLayer.show = !!v;
+    else if (v && this._streamsCanvas) this._addStreamsLayer();
+  }
+
+  setStreamsCanvas(img) {
+    // img は HTMLImageElement。Cesium の SingleTileImageryProvider は
+    // Blob URL が要るので canvas に焼いてから toBlob する。
+    const c = document.createElement("canvas");
+    c.width = img.naturalWidth || img.width;
+    c.height = img.naturalHeight || img.height;
+    c.getContext("2d").drawImage(img, 0, 0);
+    this._streamsCanvas = c;
+    if (this._streamsOn) this._addStreamsLayer();
+  }
+
+  async _addStreamsLayer() {
+    if (!this.viewer || !this.bbox || !this._streamsCanvas) return;
+    const Cesium = window.Cesium;
+    const blob = await new Promise((r) => this._streamsCanvas.toBlob(r, "image/png"));
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    try {
+      const provider = await Cesium.SingleTileImageryProvider.fromUrl(url, {
+        rectangle: Cesium.Rectangle.fromDegrees(...this.bbox),
+      });
+      if (this._streamsLayer) this.viewer.imageryLayers.remove(this._streamsLayer, true);
+      this._streamsLayer = new Cesium.ImageryLayer(provider, { alpha: 0.45 });
+      this._streamsLayer.show = this._streamsOn;
+      this.viewer.imageryLayers.add(this._streamsLayer);
+    } catch (e) {
+      console.warn("流路オーバーレイの追加に失敗: ", e);
+    }
+  }
+
   setWaves() { }
   setExag() { }                  // 真スケール
-  setPhotoCanvas() { }           // 航空写真はGSI ortタイルをベースレイヤで使う  /** ベンチモード用カメラパス: 0〜2/3は範囲周回、以降は中心へ寄る。 */
+  setPhotoCanvas() { }           // 航空写真はGSI ortタイルをベースレイヤで使う
+  /** ベンチモード用カメラパス: 0〜2/3は範囲周回、以降は中心へ寄る。 */
   benchCamera(t, total) {
     const [lon, lat] = this.centerLonLat();
     if (t < total * 2 / 3) {
@@ -360,6 +919,46 @@ export class CesiumView {
   setBuildingsVisible(v) {
     this.showBuildings = v;
     if (this._tileset) this._tileset.show = v;
+  }
+
+  /** 駅・ランドマークを文字ラベルで表示する。 */
+  setLocations(list) {
+    this._locations = list;
+    if (!this.viewer) return;
+    const Cesium = window.Cesium;
+    if (this._labelEntities) {
+      for (const e of this._labelEntities) this.viewer.entities.remove(e);
+    }
+    this._labelEntities = [];
+    for (const loc of list) {
+      const e = this.viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(loc.lon, loc.lat, 0),
+        label: {
+          text: loc.name,
+          font: "600 13px 'Segoe UI', 'Hiragino Sans', sans-serif",
+          fillColor: Cesium.Color.WHITE,
+          outlineColor: Cesium.Color.fromCssColorString("#0b1c2c"),
+          outlineWidth: 4,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          pixelOffset: new Cesium.Cartesian2(0, -14),
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          scaleByDistance: new Cesium.NearFarScalar(800, 1.0, 12000, 0.45),
+          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 30000),
+        },
+        point: {
+          pixelSize: 5,
+          color: Cesium.Color.fromCssColorString("#ffd166"),
+          outlineColor: Cesium.Color.fromCssColorString("#0b1c2c"),
+          outlineWidth: 2,
+          heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          scaleByDistance: new Cesium.NearFarScalar(800, 1.0, 12000, 0.4),
+          distanceDisplayCondition: new Cesium.DistanceDisplayCondition(0, 30000),
+        },
+      });
+      this._labelEntities.push(e);
+    }
   }
   setBuildingLoad(lod) {
     this._lod = lod;

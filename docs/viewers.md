@@ -4,6 +4,7 @@
 **deck.gl** と **CesiumJS** の2種を追加実装し、同じシミュレーション状態を
 3つの描画経路で表示できるようにした。3D表示中はパネルの「3Dビュワー」
 セグメント (または `?3d=three|deck|cesium`) で切り替えられる。
+既定は **CesiumJS** (`?lite=1` の軽量モードでは deck.gl)。
 
 本ページは実装の設計判断と、軽さ (転送量・描画負荷) の調査結果をまとめたもの。
 
@@ -53,13 +54,19 @@ PLATEAU の 3D Tiles を CesiumJS 等で表示すると、建物が空中に浮�
   分水域・流路オーバーレイ (`streamsSimToggle`) も `BitmapLayer` で
   シミュレーション領域にドレープする。
 - **CesiumJS** (`web/view3d_cesium.js`): Web上で実寸都市モデルを表示する
-  定番構成。地形は既定で公開PLATEAU-Terrain
+  定番構成。**既定ビュワー**。地形は公開PLATEAU-Terrain
   (`https://tile.plateauview.mlit.go.jp/terrain`、quantized-mesh・楕円体高・
   Ion不要。帰属 `PLATEAU | Mapterhorn | 国土地理院`) を使い、取得失敗時のみ
-  自前GSI DEM provider に退避する (`?ionToken=` でIon asset 3258112も選択可)、
-  建物は `Cesium3DTileset`、水面は水深キャンバスを `SingleTileImageryProvider`
-  で範囲矩形にドレープする。deck.gl 版と同じく地形の裏側の隠蔽
+  自前GSI DEM provider に退避する (`?ionToken=` でIon asset 3258112も選択可)。
+  建物は `Cesium3DTileset`。水面は地形に沿ったカスタムメッシュ
+  (`Cesium.Primitive` + 頂点テクスチャで水深分だけ持ち上げ、新規冠水フロントを
+  琥珀色に発光) で描き、構築に失敗した場合のみ水深キャンバスを
+  `SingleTileImageryProvider` でドレープするフォールバックに切り替わる。
+  流れの線 (パーティクル軌跡)、分水域・流路オーバーレイ、駅・ランドマークの
+  文字ラベルも表示する。deck.gl 版と同じく地形の裏側の隠蔽
   (`depthTestAgainstTerrain`) と `applyHeightOffset` を実装済み。
+  `scene3DOnly: true` で起動する (カスタムPrimitiveの boundingSphereCV 計算を
+  省略し、FLOAT位置でも projectTo2D で落ちないようにするため)。
 
 CesiumJS は配布サイズが大きいためローカルには置かず公式CDNから、
 deck.gl は 2MB の UMD バンドルを `web/lib/deck.gl.min.js` に同梱して
@@ -90,14 +97,16 @@ deck.gl / CesiumJS のストリーミング方式が有利になる。
 
 ### 使い分けの指針
 
-- **既定 (three.js)**: ライブ計算との併用・演出 (流線/波)・オフライン。
-  ローカルデータだけで完結し、GPU があれば最軽量。
-- **deck.gl**: 実寸 PLATEAU 建物を軽量フレームワークで表示したい場合。
-  水の可視化は地形ドレープ (キャンバス 1 枚) で実装でき、カスタム
-  レイヤーによる発展 (水深ごとのシェーダ表現) もしやすい。
-- **CesiumJS**: 地形への正確な沈み込みが要る場合。PLATEAU-Terrain
-  (Ion) や 3D Tiles の成熟したストリーミング、地形による隠蔽が標準で
+- **既定 (CesiumJS)**: 地形への正確な沈み込みと実寸建物が要る場合。
+  PLATEAU-Terrain や 3D Tiles の成熟したストリーミング、地形による隠蔽、
+  地形に沿った水面メッシュ・流れパーティクル・ランドマークラベルが標準で
   用意されている。その代わりランタイムが最も重い。
+- **three.js**: ライブ計算との併用・演出 (流線/波)・オフライン。
+  ローカルデータだけで完結し、GPU があれば最軽量。
+- **deck.gl**: 実寸 PLATEAU 建物を軽量フレームワークで表示したい場合、
+  または `?lite=1` の軽量プリセット。水の可視化は地形ドレープ
+  (キャンバス 1 枚) で実装でき、カスタムレイヤーによる発展
+  (水深ごとのシェーダ表現) もしやすい。
 
 ## 雨のGPU描写 (deck.gl)
 

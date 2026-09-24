@@ -2,7 +2,7 @@
 import { bindBenchHandle, PerfHud, runBench } from "./perf.js?v=26";
 import { FloodSim, MODE_DEPTH, MODE_MAXDEPTH, MODE_SPEED, MODE_TERRAIN } from "./sim.js?v=23";
 import { ThreeView } from "./view3d.js?v=23";
-import { CesiumView } from "./view3d_cesium.js?v=27";
+import { CesiumView } from "./view3d_cesium.js?v=29";
 import { DeckView } from "./view3d_deck.js?v=28";
 import { extractChannels } from "./river.js?v=2";
 
@@ -16,6 +16,7 @@ const MAX_CELLS = 20e6;         // total sim grid cap
 const LOCATIONS = [
   { name: "名古屋駅", lon: 136.8817, lat: 35.1709 },
   { name: "栄", lon: 136.9066, lat: 35.1700 },
+  { name: "千種駅", lon: 136.9306, lat: 35.1702 },
   { name: "バンテリンドーム", lon: 136.9349, lat: 35.1868 },
   { name: "熱田神宮", lon: 136.9077, lat: 35.1276 },
   { name: "金山", lon: 136.9008, lat: 35.1433 },
@@ -32,8 +33,10 @@ const LOCATIONS = [
 // (lon 136.7800 / lat 35.1990, along the Shonai river, Nishi-ku side).
 const REGIONS = [
   { name: "名古屋駅周辺", lon: 136.8817, lat: 35.1709, halfW: 900, halfH: 700 },
+  { name: "名古屋駅・栄周辺", lon: 136.8942, lat: 35.1705, halfW: 1100, halfH: 800 },
   { name: "栄", lon: 136.9066, lat: 35.1700, halfW: 900, halfH: 700 },
   { name: "名古屋大学周辺", lon: 136.9667, lat: 35.1546, halfW: 900, halfH: 700 },
+  { name: "千種駅周辺", lon: 136.9306, lat: 35.1702, halfW: 900, halfH: 700 },
   { name: "9/8 降雨ピーク域 (西区周辺)", lon: 136.7800, lat: 35.1990, halfW: 900, halfH: 700 },
 ];
 
@@ -80,7 +83,7 @@ if (liteDefault && qs.get("lite") !== "1") {
   console.info("ソフトウェアレンダリング環境を検出: 軽量3D既定を適用します (?lite=0 で解除)");
 }
 let view3dKind = ["three", "deck", "cesium"].includes(qs.get("3d"))
-  ? qs.get("3d") : (liteDefault ? "deck" : "three");
+  ? qs.get("3d") : (liteDefault ? "deck" : "cesium");
 const photoDefault = qs.has("photo") ? qs.get("photo") !== "0" : !liteDefault;
 const bldgParam = qs.get("bldg");
 const bldgDefault = bldgParam != null ? bldgParam !== "0" : !liteDefault;
@@ -189,10 +192,12 @@ function init() {
     for (const btn of welcomeDlg.querySelectorAll(".welcome-opt")) {
       btn.addEventListener("click", () => {
         const action = btn.dataset.action;
+        const regionIdx = btn.dataset.region;
         if ($("welcomeSkip").checked) localStorage.setItem("flood-nagoya-welcome-seen", "1");
         welcomeDlg.close();
-        if (action === "region") {
-          document.querySelector("#regionList button")?.click();
+        if (regionIdx != null) {
+          const reg = REGIONS[Number(regionIdx)];
+          if (reg) startRegionSim(reg);
         } else if (action === "city") {
           $("cityBtn")?.click();
         } else if (action === "replay") {
@@ -851,6 +856,7 @@ async function startPlayback(dir) {
       streamsImg = img;
       if (view3ds.three) view3ds.three.setStreamsCanvas(img);
       if (view3ds.deck) view3ds.deck.setStreamsCanvas(img);
+      if (view3ds.cesium) view3ds.cesium.setStreamsCanvas(img);
     }).catch(() => { });
 
     playback.on = true;
@@ -1198,11 +1204,13 @@ function wireUI() {
     flow.setEnabled(e.target.checked);
     if (view3ds.three) view3ds.three.setFlowEnabled(e.target.checked);
     if (view3ds.deck) view3ds.deck.setFlowEnabled(e.target.checked);
+    if (view3ds.cesium) view3ds.cesium.setFlowEnabled(e.target.checked);
   });
   $("streamsSimToggle").addEventListener("change", (e) => {
     if (sim) sim.streamsOverlay = e.target.checked;
     if (view3ds.three) view3ds.three.setStreamsVisible(e.target.checked);
     if (view3ds.deck) view3ds.deck.setStreamsVisible(e.target.checked);
+    if (view3ds.cesium) view3ds.cesium.setStreamsVisible(e.target.checked);
   });
   $("tabMap").addEventListener("click", () => {
     if (mode === "sim") backToMap();
@@ -1412,7 +1420,7 @@ function set3d(on) {
     // three.js / deck.gl 専用オプションの表示切替
     $("exagCtl").hidden = view3dKind !== "three";
     $("waveCtl").hidden = view3dKind !== "three";
-    $("flowCtl").hidden = view3dKind === "cesium";
+    $("flowCtl").hidden = false;
     $("rainCtl").hidden = view3dKind !== "deck";
     $("weatherCtl").hidden = view3dKind !== "deck";
     $("bldgSrcCtl").hidden = view3dKind !== "deck";
@@ -1426,6 +1434,14 @@ function set3d(on) {
       view3ds.deck.setTerrainQuality(terrainQuality);
       view3ds.deck.setBuildingLoad(deckLod);
       view3ds.deck.setFlowEnabled(flow.on);
+    }
+    if (view3dKind === "cesium") {
+      view3ds.cesium.setPhotoVisible($("photo3dToggle").checked);
+      view3ds.cesium.setBuildingsVisible($("bldg3dToggle").checked);
+      view3ds.cesium.setStreamsVisible($("streamsSimToggle").checked);
+      if (streamsImg) view3ds.cesium.setStreamsCanvas(streamsImg);
+      view3ds.cesium.setFlowEnabled(flow.on);
+      view3ds.cesium.setLocations(LOCATIONS);
     }
     toast(`3D表示中 (${view3dKind}) — ドラッグで回転・ホイールでズーム・右ドラッグで移動`);
     // ?bench=秒 があれば自動でベンチを走らせる (軽さ比較用)
@@ -1460,6 +1476,9 @@ function applyRegionTo3d() {
   }
   if (view3ds.deck) {
     view3ds.deck.setStreamsVisible($("streamsSimToggle").checked);
+  }
+  if (view3ds.cesium) {
+    view3ds.cesium.setStreamsVisible($("streamsSimToggle").checked);
   }
   // リプレイ中は region再構築で水位が消えるので、現フレームを再バインドする
   if (playback.on && playback.cur >= 0 && playback.cache.has(playback.cur)) {
