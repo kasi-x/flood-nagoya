@@ -7,7 +7,7 @@
 //      Ionトークン指定時はIon asset 3258112、取得失敗時のみ自前GSI DEMに退避)
 //   2. depthTestAgainstTerrain で地形の裏側を隠す
 //   3. applyHeightOffset (modelMatrix平行移動) での微調整 (?hoff=メートル、通常は不要)
-import { drawWaterCanvas, loadScript, pickBldgTileset, regionBBox } from "./geo.js?v=27";
+import { drawWaterCanvas, loadScript, pickBldgTilesets, regionBBox } from "./geo.js?v=28";
 
 // CesiumJS は配布サイズが大きいためローカルには置かず、公式CDNから読む
 const CESIUM_URL = "https://cesium.com/downloads/cesiumjs/releases/1.132/Build/Cesium/Cesium.js";
@@ -283,7 +283,7 @@ export class CesiumView {
     this.stats = { tilesLoaded: 0, bytesLoaded: 0 };
     // ?lod=1 で軽量LOD1 / 既定はLOD2 — 軽さ比較用
     this._lod = new URLSearchParams(location.search).get("lod") === "1" ? "1" : "2";
-    this._tileset = null;
+    this._tilesets = [];
     this._waterLayer = null;
     this._waterBlobUrl = null;
     this._waterCanvas = document.createElement("canvas");
@@ -309,6 +309,7 @@ export class CesiumView {
     this._streamsLayer = null;
     this._streamsOn = false;
     this._streamsCanvas = null;
+    this._bldgGen = 0;        // _loadBuildings の世代カウンタ (競合防止)
   }
 
   async _init() {
@@ -376,7 +377,9 @@ export class CesiumView {
     this.stateH = stateH || H;
     this._regionTerrain = terrainData ? { data: terrainData, W, H } : null;
     this.bbox = regionBBox({ W, H, dx: mPerPx, left: this._left || 0, top: this._top || 0 },
-      window.__meta, window.__overviewFactor || 4);
+      window.__meta);
+    // Cesium CDN が読めていない/viewer未初期化なら bbox だけ保持して退避
+    if (!window.Cesium || !this.viewer) return;
     // リージョン変更: 水面メッシュ・冠水履歴・流線を作り直す
     this._frontAge = null;
     this._wet = null;
@@ -409,37 +412,47 @@ export class CesiumView {
       Cesium.Math.toRadians(-20), Cesium.Math.toRadians(-38),
       Math.min(Math.max(spanKm * 820, 1600), 60000)));
     this.viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);   // 操作可能に戻す
-    this._loadBuildings(lonC, latC);
+    this._loadBuildings();
   }
 
-  async _loadBuildings(lon, lat) {
-    const pick = await pickBldgTileset(lon, lat, this._lod || "2");
-    if (this._bldgUrl === pick.url) return;
-    this._bldgUrl = pick.url;
-    this._wardName = pick.ward;
+  /** bbox と重なる全区の PLATEAU 建物タイルセットを読む (区境またぎ対応)。 */
+  async _loadBuildings() {
+    const gen = ++this._bldgGen;   // リージョン変更ごとに増え、古いロードを無効化
+    const picks = await pickBldgTilesets(this.bbox, this._lod || "2");
+    if (gen !== this._bldgGen) return;              // 別リージョンに切り替わった
+    const key = picks.map((p) => p.url).join("|");
+    if (this._bldgKey === key) return;
+    this._bldgKey = key;
+    this._wardName = picks.map((p) => p.ward).join("・");
     this.stats.tilesLoaded = 0;
     this.stats.bytesLoaded = 0;
     const Cesium = window.Cesium;
-    if (this._tileset) {
-      this.viewer.scene.primitives.remove(this._tileset);
-      this._tileset = null;
+    if (this._tilesets) {
+      for (const t of this._tilesets) this.viewer.scene.primitives.remove(t);
     }
-    try {
-      const tileset = await Cesium.Cesium3DTileset.fromUrl(pick.url, {
-        maximumScreenSpaceError: 16,
-        showCreditsOnScreen: true,
-      });
-      // 記事の解決策: 地形適用後のわずかなずれは modelMatrix で調整する
-      applyHeightOffset(tileset, heightOffsetMeters());
-      tileset.show = this.showBuildings;
-      this._tileset = tileset;
-      this.viewer.scene.primitives.add(tileset);
-      tileset.tileLoad.addEventListener((tile) => {
-        this.stats.tilesLoaded++;
-        this.stats.bytesLoaded += tile.content?.byteLength ?? tile.byteLength ?? 0;
-      });
-    } catch (e) {
-      console.warn("PLATEAU tileset の読み込みに失敗: ", e);
+    this._tilesets = [];
+    for (const pick of picks) {
+      try {
+        const tileset = await Cesium.Cesium3DTileset.fromUrl(pick.url, {
+          maximumScreenSpaceError: 16,
+          showCreditsOnScreen: true,
+        });
+        if (gen !== this._bldgGen) {                // ロード中にリージョン変更
+          this.viewer.scene.primitives.remove(tileset);
+          continue;
+        }
+        // 記事の解決策: 地形適用後のわずかなずれは modelMatrix で調整する
+        applyHeightOffset(tileset, heightOffsetMeters());
+        tileset.show = this.showBuildings;
+        this._tilesets.push(tileset);
+        this.viewer.scene.primitives.add(tileset);
+        tileset.tileLoad.addEventListener((tile) => {
+          this.stats.tilesLoaded++;
+          this.stats.bytesLoaded += tile.content?.byteLength ?? tile.byteLength ?? 0;
+        });
+      } catch (e) {
+        console.warn(`PLATEAU tileset (${pick.ward}) の読み込みに失敗: `, e);
+      }
     }
   }
 
@@ -866,8 +879,17 @@ export class CesiumView {
   }
 
   setStreamsCanvas(img) {
-    // img は HTMLImageElement。Cesium の SingleTileImageryProvider は
-    // Blob URL が要るので canvas に焼いてから toBlob する。
+    // img は HTMLImageElement か canvas。null ならオーバーレイを外す。
+    if (!img) {
+      this._streamsCanvas = null;
+      if (this._streamsLayer) {
+        this.viewer.imageryLayers.remove(this._streamsLayer, true);
+        this._streamsLayer = null;
+      }
+      return;
+    }
+    // Cesium の SingleTileImageryProvider は Blob URL が要るので
+    // canvas に焼いてから toBlob する。
     const c = document.createElement("canvas");
     c.width = img.naturalWidth || img.width;
     c.height = img.naturalHeight || img.height;
@@ -879,13 +901,17 @@ export class CesiumView {
   async _addStreamsLayer() {
     if (!this.viewer || !this.bbox || !this._streamsCanvas) return;
     const Cesium = window.Cesium;
-    const blob = await new Promise((r) => this._streamsCanvas.toBlob(r, "image/png"));
-    if (!blob) return;
+    // 非同期処理の間にリージョンが変わると古い bbox に張り付くので、
+    // 呼び出し時点の bbox/canvas を捕まえて完了時に照合する。
+    const bbox = this.bbox, canvas = this._streamsCanvas;
+    const blob = await new Promise((r) => canvas.toBlob(r, "image/png"));
+    if (!blob || this.bbox !== bbox || this._streamsCanvas !== canvas) return;
     const url = URL.createObjectURL(blob);
     try {
       const provider = await Cesium.SingleTileImageryProvider.fromUrl(url, {
-        rectangle: Cesium.Rectangle.fromDegrees(...this.bbox),
+        rectangle: Cesium.Rectangle.fromDegrees(...bbox),
       });
+      if (this.bbox !== bbox) { URL.revokeObjectURL(url); return; }
       if (this._streamsLayer) this.viewer.imageryLayers.remove(this._streamsLayer, true);
       this._streamsLayer = new Cesium.ImageryLayer(provider, { alpha: 0.45 });
       this._streamsLayer.show = this._streamsOn;
@@ -918,7 +944,7 @@ export class CesiumView {
   }
   setBuildingsVisible(v) {
     this.showBuildings = v;
-    if (this._tileset) this._tileset.show = v;
+    if (this._tilesets) for (const t of this._tilesets) t.show = v;
   }
 
   /** 駅・ランドマークを文字ラベルで表示する。 */
@@ -962,8 +988,8 @@ export class CesiumView {
   }
   setBuildingLoad(lod) {
     this._lod = lod;
-    this._bldgUrl = null;
-    if (this.bbox) this._loadBuildings((this.bbox[0] + this.bbox[2]) / 2, (this.bbox[1] + this.bbox[3]) / 2);
+    this._bldgKey = null;
+    if (this.bbox) this._loadBuildings();
   }
 
   zoomBy(f) {
@@ -1003,7 +1029,7 @@ export class CesiumView {
   getPerf() {
     const Cesium = window.Cesium;
     const req = Cesium?.RequestScheduler.statistics ?? {};
-    const mem = this._tileset?.statistics;
+    const mem = this._tilesets?.[0]?.statistics;
     return {
       tiles: this.stats.tilesLoaded, bytes: this.stats.bytesLoaded,
       ward: this._wardName, requests: req.numberOfActiveRequests ?? null,

@@ -9,7 +9,7 @@
 // 建物: Tile3DLayer で PLATEAU の b3dm を表示。建物は地心直交座標の絶対高さを
 //       持ち、地形も同じ国土地理院 DEM 基準のため「浮き」がない。
 
-import { decodeTerrCm, drawWaterCanvas, loadScript, mergeBuildingRects, pickBldgTileset, regionBBox } from "./geo.js?v=27";
+import { decodeTerrCm, drawWaterCanvas, loadScript, mergeBuildingRects, pickBldgTilesets, regionBBox } from "./geo.js?v=28";
 
 // ローカルにベンダリングした deck.gl (MIT License, https://deck.gl)
 const DECK_URL = "lib/deck.gl.min.js";
@@ -144,7 +144,8 @@ export class DeckView {
     this._region = null;
     this._left = 0;
     this._top = 0;
-    this._bldgUrl = null;
+    this._bldgUrls = null;
+    this._bldgGen = 0;         // _loadBuildings の世代カウンタ (競合防止)
     const params = new URLSearchParams(location.search);
     // ?lite=1 は軽量プリセット (lod=1, photo=0, bldg=0, terrain=low) の一括指定。
     // 個別パラメータが明示されていればそちらを優先する。
@@ -210,7 +211,7 @@ export class DeckView {
     this.stateW = stateW || W;
     this.stateH = stateH || H;
     this.bbox = regionBBox({ W, H, dx: mPerPx, left: this._left, top: this._top },
-      window.__meta, window.__overviewFactor || 4);
+      window.__meta);
     // 初期カメラ: 範囲を収め、やや南から見下ろす。
     // deck.gl zoom: 512*2^zoom px で 360°。範囲をキャンバス幅の ~75% に収める。
     const lonC = (this.bbox[0] + this.bbox[2]) / 2, latC = (this.bbox[1] + this.bbox[3]) / 2;
@@ -221,7 +222,7 @@ export class DeckView {
       initialViewState: { longitude: lonC, latitude: latC - spanLon * 0.10, zoom, pitch: 55, bearing: -18 },
     });
     // PLATEAUタイルは plateau モードのときだけ取得する (simple は通信ゼロ)
-    if (this._bldgMode === "plateau") this._loadBuildings(lonC, latC);
+    if (this._bldgMode === "plateau") this._loadBuildings();
     this._simpleBldg = undefined;
     // 水深キャンバス (ダブルバッファ) — updateWater で交互に使う
     if (!this._waterCanvases) {
@@ -325,11 +326,16 @@ export class DeckView {
     return [mk("rain-a", tz), mk("rain-b", tz - RAIN_PERIOD)];
   }
 
-  async _loadBuildings(lon, lat) {
-    const pick = await pickBldgTileset(lon, lat, this._lod);
-    if (this._bldgUrl === pick.url) return;
-    this._bldgUrl = pick.url;
-    this._wardName = pick.ward;
+  /** bbox と重なる全区の PLATEAU 建物タイルセットを読む (区境またぎ対応)。 */
+  async _loadBuildings() {
+    const gen = ++this._bldgGen;   // リージョン変更ごとに増え、古いロードを無効化
+    const picks = await pickBldgTilesets(this.bbox, this._lod);
+    if (gen !== this._bldgGen) return;              // 別リージョンに切り替わった
+    const key = picks.map((p) => p.url).join("|");
+    if (this._bldgKey === key) return;
+    this._bldgKey = key;
+    this._bldgUrls = picks.map((p) => p.url);
+    this._wardName = picks.map((p) => p.ward).join("・");
     this.stats.tilesLoaded = 0;
     this.stats.bytesLoaded = 0;
     this._renderLayers();
@@ -388,19 +394,21 @@ export class DeckView {
             pickable: false,
           }));
         }
-      } else if (this._bldgUrl) {
+      } else if (this._bldgUrls?.length) {
         // idにMSSEを含めて、値が変わったときは別レイヤー=タイルセット再構築にする
         const msse = this._bldgMsse ?? BLDG_MSSE[this._terrainQuality] ?? 8;
-        layers.push(new deck.Tile3DLayer({
-          id: `plateau-bldg-msse${msse}`,
-          data: this._bldgUrl,
-          loadOptions: { tileset: { maximumScreenSpaceError: msse } },
-          onTilesetLoad: () => { this.stats.tilesetLoads++; },
-          onTileLoad: (tile) => {
-            this.stats.tilesLoaded++;
-            this.stats.bytesLoaded += tile.content?.byteLength || 0;
-          },
-        }));
+        for (const url of this._bldgUrls) {
+          layers.push(new deck.Tile3DLayer({
+            id: `plateau-bldg-msse${msse}-${url.slice(-24)}`,
+            data: url,
+            loadOptions: { tileset: { maximumScreenSpaceError: msse } },
+            onTilesetLoad: () => { this.stats.tilesetLoads++; },
+            onTileLoad: (tile) => {
+              this.stats.tilesLoaded++;
+              this.stats.bytesLoaded += tile.content?.byteLength || 0;
+            },
+          }));
+        }
       }
     }
     layers.push(...this._rainLayers());
@@ -744,9 +752,9 @@ export class DeckView {
   setBuildingLoad(lod) {
     if (lod === this._lod) return;
     this._lod = lod;
-    this._bldgUrl = null;
+    this._bldgKey = null;
     if (this.bbox && this._bldgMode === "plateau") {
-      this._loadBuildings((this.bbox[0] + this.bbox[2]) / 2, (this.bbox[1] + this.bbox[3]) / 2);
+      this._loadBuildings();
     }
   }
 
@@ -756,8 +764,8 @@ export class DeckView {
     if (mode !== "plateau" && mode !== "simple") return;
     if (this._bldgMode === mode) return;
     this._bldgMode = mode;
-    if (mode === "plateau" && this.bbox && !this._bldgUrl) {
-      this._loadBuildings((this.bbox[0] + this.bbox[2]) / 2, (this.bbox[1] + this.bbox[3]) / 2);
+    if (mode === "plateau" && this.bbox && !this._bldgUrls) {
+      this._loadBuildings();
     }
     this._renderLayers();
   }

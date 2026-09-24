@@ -5,7 +5,7 @@
 
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { decodeTerrCm as decodeTerr, mergeBuildingRects } from "./geo.js?v=27";
+import { decodeTerrCm as decodeTerr, mergeBuildingRects } from "./geo.js?v=28";
 
 // Vertical exaggeration applied consistently to terrain, water and buildings.
 // Default comes from ?exag= (PLATEAU-View style terrain exaggeration), 1.0 if unset.

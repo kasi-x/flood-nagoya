@@ -3,6 +3,7 @@
 // PLATEAU 建物 3D Tiles の選択、水深フィールドのキャンバス描画を提供する。
 
 const TILE_PX = 256;
+const Z15 = 15;   // ソースタイルのズーム (regionInfo の left/top は z15 px)
 
 // Web Mercator: タイル座標 (小数) → 経緯度
 export function tileXToLon(x, z) {
@@ -16,19 +17,21 @@ export function tileYToLat(y, z) {
 /**
  * regionInfo (W, H, dx, left, top) から [west, south, east, north] を度で返す。
  * left/top は tile_range 原点からの z15 ピクセルオフセット。
- * 全域モード (overview) の格子は 1px = OVERVIEW_FACTOR 分の z15 ピクセル。
+ * セルサイズ dx [m] から z15 ピクセル換算の幅・高さを求めるので、
+ * 全域モード (overview) と通常リージョンの両方で正しくなる。
  */
-export function regionBBox(ri, meta, overviewFactor) {
+export function regionBBox(ri, meta) {
   const { x0, y0 } = meta.tile_range;
-  const f = ri.dx === meta.overviewMPerPx ? overviewFactor : 1;
-  const z = 15 - Math.log2(f);
+  // 1 z15 px = meta.z15MPerPx m (meta.bbox 中央緯度)。dx から z15 px 数を出す。
+  const pxW = ri.W * ri.dx / meta.z15MPerPx;
+  const pxH = ri.H * ri.dx / meta.z15MPerPx;
   const tx0 = x0 + ri.left / TILE_PX;
   const ty0 = y0 + ri.top / TILE_PX;
-  const tx1 = tx0 + ri.W / (TILE_PX * f);
-  const ty1 = ty0 + ri.H / (TILE_PX * f);
+  const tx1 = tx0 + pxW / TILE_PX;
+  const ty1 = ty0 + pxH / TILE_PX;
   return [
-    tileXToLon(tx0, z), tileYToLat(ty1, z),
-    tileXToLon(tx1, z), tileYToLat(ty0, z),
+    tileXToLon(tx0, Z15), tileYToLat(ty1, Z15),
+    tileXToLon(tx1, Z15), tileYToLat(ty0, Z15),
   ];
 }
 
@@ -171,6 +174,30 @@ export async function pickBldgTileset(lon, lat, lod = "2") {
   if (!url && lod === "2") url = cat?.[w.code]?.["1"];
   if (!url) url = w.urls[lod] || w.urls["1"];
   return { ward: w.ward, url };
+}
+
+/** bbox と重なる全区の建物 tileset を返す (区境をまたぐリージョン用)。
+ * 区の厳密な境界ポリゴンは持たないので、区の代表点が bbox+マージン内に
+ * ある区を選ぶ。マージンは区の典型的な半径 (~3km ≈ 0.03°) を見込む。 */
+export async function pickBldgTilesets(bbox, lod = "2") {
+  const [west, south, east, north] = bbox;
+  // 代表点と bbox の最短距離が区の典型的な半径 (~7km ≈ 0.08°) 以内なら含める。
+  const M = 0.08;
+  const wards = NAGOYA_WARDS.filter((w) => {
+    const dx = Math.max(west - w.lon, 0, w.lon - east);
+    const dy = Math.max(south - w.lat, 0, w.lat - north);
+    return Math.hypot(dx, dy) <= M;
+  });
+  if (!wards.length) wards.push(pickWard((west + east) / 2, (south + north) / 2));
+  const cat = await fetchWardCatalog();
+  const out = [];
+  for (const w of wards) {
+    let url = cat?.[w.code]?.[lod];
+    if (!url && lod === "2") url = cat?.[w.code]?.["1"];
+    if (!url) url = w.urls[lod] || w.urls["1"];
+    if (url) out.push({ ward: w.ward, url });
+  }
+  return out;
 }
 
 // ---------- 建物高さラスタ → 箱インスタンス (three.js / deck.gl 共通) ----------

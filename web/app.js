@@ -2,8 +2,8 @@
 import { bindBenchHandle, PerfHud, runBench } from "./perf.js?v=26";
 import { FloodSim, MODE_DEPTH, MODE_MAXDEPTH, MODE_SPEED, MODE_TERRAIN } from "./sim.js?v=23";
 import { ThreeView } from "./view3d.js?v=23";
-import { CesiumView } from "./view3d_cesium.js?v=29";
-import { DeckView } from "./view3d_deck.js?v=28";
+import { CesiumView } from "./view3d_cesium.js?v=30";
+import { DeckView } from "./view3d_deck.js?v=29";
 import { extractChannels } from "./river.js?v=2";
 
 const Z15 = 15;
@@ -37,7 +37,7 @@ const REGIONS = [
   { name: "栄", lon: 136.9066, lat: 35.1700, halfW: 900, halfH: 700 },
   { name: "名古屋大学周辺", lon: 136.9667, lat: 35.1546, halfW: 900, halfH: 700 },
   { name: "千種駅周辺", lon: 136.9306, lat: 35.1702, halfW: 900, halfH: 700 },
-  { name: "9/8 降雨ピーク域 (西区周辺)", lon: 136.7800, lat: 35.1990, halfW: 900, halfH: 700 },
+  { name: "9/8 降雨ピーク域 (西区周辺)", lon: 136.7800, lat: 35.1990, halfW: 900, halfH: 700, scenario: "rain_20260908_msm.json" },
 ];
 
 const $ = (id) => document.getElementById(id);
@@ -55,7 +55,8 @@ let mapDemTex = null, mapStreamsTex = null, mapBldgTex = null;
 let mapLayers = { bldg: true, streams: true };
 let streamsImg = null;         // 分水域・流路オーバーレイ画像 (3Dビュワー共通)
 let riverOn = true;            // 河川氾濫モデル (1D河道→2D溢水)
-let observedList = [];   // [{kind, button, entry}] in index.json order
+let observedList = [];   // [{kind, button, entry, sc}] in index.json order
+let observedReady = null; // loadObservedScenarios() の完了プロミス
 // 3Dビュワー (three.js / deck.gl / CesiumJS) の種別とインスタンス。
 // すべて setRegion/updateWater 等の共通インターフェースを持つ。
 const qs = new URLSearchParams(location.search);
@@ -146,14 +147,40 @@ const latToY = (lat, z) => {
 };
 const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
 
+/** 河道マスクから分水域・流路オーバーレイ用のキャンバスを作る (row0=北)。 */
+function streamsCanvasFromField(field, w, h) {
+  const c = document.createElement("canvas");
+  c.width = w; c.height = h;
+  const ctx = c.getContext("2d");
+  const img = ctx.createImageData(w, h);
+  const px = img.data;
+  for (let i = 0; i < w * h; i++) {
+    if (!field.mask[i]) continue;
+    const o = i * 4;
+    // 集水域の大きさで濃さを変える (太い川ほど濃い青)
+    const km2 = field.area[i] / 1e6;
+    const a = Math.min(0.85, 0.35 + km2 / 60);
+    px[o] = 40; px[o + 1] = 120; px[o + 2] = 200;
+    px[o + 3] = Math.round(a * 255);
+  }
+  ctx.putImageData(img, 0, 0);
+  return c;
+}
+
 /** Compute the river-channel field for the current grid and upload it. */
 function applyRiverField(terrainData, w, h, dx) {
   if (!sim) return;
-  if (!riverOn) { sim.setRiverField(null); return; }
+  if (!riverOn) { sim.setRiverField(null); streamsImg = null; return; }
   try {
     // terrainData may be ImageData (from getImageData) or Uint8Array
     const px = terrainData instanceof ImageData ? terrainData.data : terrainData;
-    sim.setRiverField(extractChannels(px, w, h, dx));
+    const field = extractChannels(px, w, h, dx);
+    sim.setRiverField(field);
+    // このリージョンの河道から流路オーバーレイを生成 (リプレイ画像の流用をやめる)
+    streamsImg = streamsCanvasFromField(field, w, h);
+    if (view3ds.three) view3ds.three.setStreamsCanvas(streamsImg);
+    if (view3ds.deck) view3ds.deck.setStreamsCanvas(streamsImg);
+    if (view3ds.cesium) view3ds.cesium.setStreamsCanvas(streamsImg);
   } catch (e) {
     console.warn("river field failed", e);
     sim.setRiverField(null);
@@ -244,7 +271,7 @@ function init() {
   for (const id of ["rain", "duration", "drain", "infil", "manning", "speed"]) updateSliderFill($(id));
   window.addEventListener("resize", resizeCanvas);
   resizeCanvas();
-  loadObservedScenarios();
+  observedReady = loadObservedScenarios();
 }
 
 function resizeCanvas() {
@@ -456,11 +483,12 @@ function drawSparkline(cv, series) {
   ctx.stroke();
 }
 
-/** Click the first observed-rain (AMeDAS) button: the realistic default.
+/** 既定の観測降雨 (AMeDAS実測) をライブ適用する。
+ * リプレイには切替えない — ユーザーが選んだリージョンを保持するため。
  * Returns true when an observed scenario was applied. */
 function applyDefaultRain() {
   const obs = observedList.find((o) => o.kind === "observed-rain");
-  if (obs && obs.button) { obs.button.click(); return true; }
+  if (obs && obs.sc) { applyScenarioLive(obs.sc, obs.entry); setActiveScenario(obs.button); return true; }
   return false;
 }
 
@@ -510,23 +538,30 @@ async function loadObservedScenarios() {
         await startPlayback(dir);
         return;
       }
-      if (sc.kind === "observed-rain") {
-        rainFrames.stop();
-        sim.startHyetograph(sc.series);
-        tl.reset();
-        toast(`観測降雨を再現中: ${entry.name} — 実測ハイエトグラフで駆動 (降雨スライダーは無効)`);
-      } else {
-        if (!regionInfo) { toast("先にシミュレーション範囲を選んでください"); return; }
-        rainFrames.load(sc);
-        tl.reset();
-        toast(`観測降雨 (空間分布) を再現中: ${entry.name} — ${sc.source}`);
-      }
+      applyScenarioLive(sc, entry);
       setActiveScenario(b);
     };
-    observedList.push({ kind: sc.kind, button: b, entry });
+    observedList.push({ kind: sc.kind, button: b, entry, sc });
     holder.appendChild(b);
   }
 }
+
+/** 観測シナリオを現在のライブシミュレーションに適用する (リプレイには切替えない)。
+ * observed-rain はハイエトグラフ、それ以外 (msm/xrain) は空間分布フレームで駆動。 */
+function applyScenarioLive(sc, entry) {
+  if (sc.kind === "observed-rain") {
+    rainFrames.stop();
+    sim.startHyetograph(sc.series);
+    tl.reset();
+    toast(`観測降雨を再現中: ${entry.name} — 実測ハイエトグラフで駆動 (降雨スライダーは無効)`);
+  } else {
+    if (!regionInfo) { toast("先にシミュレーション範囲を選んでください"); return; }
+    rainFrames.load(sc);
+    tl.reset();
+    toast(`観測降雨 (空間分布) を再現中: ${entry.name} — ${sc.source || entry.desc}`);
+  }
+}
+
 
 // ---------- observed spatial-rain frame streaming (XRAIN / MSM) ----------
 
@@ -668,7 +703,9 @@ function mapRectToZ15(r) {
   return { left, top, w, h };
 }
 
-/** Select a wide region around a place and open it in 3D. */
+/** Select a wide region around a place and open it in 3D.
+ * reg.scenario があれば、その観測降雨シナリオをライブ適用する
+ * (例: 洪水被害地域 → 9/8 MSM空間降雨で河川氾濫を再現)。 */
 async function startRegionSim(reg) {
   if (!meta) return;
   const { x0, y0 } = meta.tile_range;
@@ -680,6 +717,13 @@ async function startRegionSim(reg) {
   });
   await startSimFromRect(r);
   if (!view3dOn) set3d(true);
+  // 地域に紐づく観測シナリオをライブ適用 (リプレイには切替えない)。
+  // シナリオ一覧の読み込みが終わっていなければ待つ。
+  if (reg.scenario) {
+    if (observedReady) await observedReady;
+    const o = observedList.find((x) => x.entry.file === reg.scenario);
+    if (o?.sc) applyScenarioLive(o.sc, o.entry);
+  }
 }
 
 // ---------- precomputed flood replay (栄エリアの事前計算結果の再生) ----------
@@ -913,9 +957,11 @@ async function startPlayback(dir) {
     const wetIdx = m.stats.findIndex((s) => s.a5 > 3e5);
     sim.time = wetIdx > 0 ? m.times[wetIdx] : 0;
     playback.applyTime(sim.time, true);   // setRegion後のテクスチャに最初のフレームを流し込む
-    // aerial photo drape for the 3D view
+    // aerial photo drape for the 3D view — 非同期なので、到着時に
+    // regionInfo が別リージョンに差し替わっていたら適用しない
+    const regionAtFetch = regionInfo;
     fetchPhotoCanvas(r.left, r.top, r.w, r.h, 16).then((photo) => {
-      if (photo && regionInfo.W === r.w) {
+      if (photo && regionInfo === regionAtFetch) {
         regionInfo.photo = photo;
         if (view3d && view3dOn) view3d.setPhotoCanvas(photo);
       }
@@ -995,7 +1041,8 @@ async function startSimFromRect(r) {
     regionInfo = region;
     if (view3d && view3dOn) applyRegionTo3d();
     fetchPhotoCanvas(r.left, r.top, r.w, r.h, 16).then((photo) => {
-      if (photo && regionInfo.W === r.w) {
+      // 到着時に regionInfo が別リージョンに差し替わっていたら適用しない
+      if (photo && regionInfo === region) {
         regionInfo.photo = photo;
         if (view3d && view3dOn) view3d.setPhotoCanvas(photo);
       }
@@ -1052,10 +1099,12 @@ function startCitySim() {
       ctb.drawImage(bldg, 0, 0);
       bldgData = ctb.getImageData(0, 0, ow, oh).data;
     }
-    regionInfo = { terrain: terrain.data, bldg: bldgData, W: ow, H: oh, dx: meta.overviewMPerPx, photo: null, left: 0, top: 0 };
+    const region = { terrain: terrain.data, bldg: bldgData, W: ow, H: oh, dx: meta.overviewMPerPx, photo: null, left: 0, top: 0 };
+    regionInfo = region;
     if (view3d && view3dOn) applyRegionTo3d();
     fetchPhotoCanvas(0, 0, ow, oh, 13).then((photo) => {
-      if (photo && regionInfo.W === ow) {
+      // 到着時に regionInfo が別リージョンに差し替わっていたら適用しない
+      if (photo && regionInfo === region) {
         regionInfo.photo = photo;
         if (view3d && view3dOn) view3d.setPhotoCanvas(photo);
       }
