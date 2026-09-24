@@ -297,6 +297,26 @@ void main(){
   o = vec4(sumH, c1/256.0, c2/256.0, c3/256.0);
 }`;
 
+const FLOW_FRAG = `#version 300 es
+precision highp float;
+precision highp sampler2D;
+uniform sampler2D uState;
+uniform ivec2 uGrid;
+out vec4 o;
+void main(){
+  ivec2 base = ivec2(gl_FragCoord.xy) * 16;
+  float sumH = 0.0; float sumQx = 0.0; float sumQy = 0.0; float c = 0.0;
+  for(int dy = 0; dy < 16; dy++){
+    for(int dx = 0; dx < 16; dx++){
+      ivec2 p = base + ivec2(dx, dy);
+      if(any(greaterThanEqual(p, uGrid))) continue;
+      vec4 s = texelFetch(uState, p, 0);
+      sumH += s.x; sumQx += s.y; sumQy += s.z; c += 1.0;
+    }
+  }
+  o = vec4(sumH / c, sumQx / c, sumQy / c, 1.0);
+}`;
+
 function compile(gl, type, src) {
   const sh = gl.createShader(type);
   gl.shaderSource(sh, src);
@@ -351,6 +371,7 @@ export class FloodSim {
     this.simPrg = program(gl, SIM_FRAG);
     this.renderPrg = program(gl, RENDER_FRAG);
     this.reducePrg = program(gl, REDUCE_FRAG);
+    this.flowPrg = program(gl, FLOW_FRAG);
     this.vao = gl.createVertexArray();
     this.view = { x: 0, y: 0, z: 1 };   // grid px: center + scale (screen px per cell)
     this.streamsOverlay = false;        // 分水域オーバーレイ (リプレイ2D用)
@@ -403,6 +424,11 @@ export class FloodSim {
     this.reduceFbo = gl.createFramebuffer();
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.reduceFbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.reduceTex, 0);
+    // flow-field reduction target (same 1/16 grid, carries avg h/qx/qy)
+    this.flowTex = makeTex(gl, this.rw, this.rh, gl.RGBA32F, gl.RGBA, gl.FLOAT, null);
+    this.flowFbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.flowFbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.flowTex, 0);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.flip = 0;
     this.time = 0;
@@ -682,6 +708,24 @@ export class FloodSim {
     return packed;
   }
 
+  /** Downsampled flow field for particles: {h, qx, qy} at 1/16 res. */
+  readFlowField() {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.flowFbo);
+    gl.viewport(0, 0, this.rw, this.rh);
+    gl.useProgram(this.flowPrg.p);
+    const u = this.flowPrg.u;
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.state[this.flip]);
+    gl.uniform1i(u.uState, 0);
+    gl.uniform2i(u.uGrid, this.W, this.H);
+    gl.bindVertexArray(this.vao);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    const buf = new Float32Array(this.rw * this.rh * 4);
+    gl.readPixels(0, 0, this.rw, this.rh, gl.RGBA, gl.FLOAT, buf);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return { data: buf, w: this.rw, h: this.rh };
+  }
+
   /** Restore a checkpoint at model time `t` (flux restarts from zero). */
   restoreCheckpoint(packed, t) {
     const gl = this.gl;
@@ -746,14 +790,16 @@ export class FloodSim {
 
   dispose() {
     const gl = this.gl;
-    for (const k of ["terrainTex", "bldgTex", "streamsTex", "satTex", "reduceTex"]) {
+    for (const k of ["terrainTex", "bldgTex", "streamsTex", "satTex", "reduceTex", "flowTex"]) {
       if (this[k]) { gl.deleteTexture(this[k]); this[k] = null; }
     }
     if (this.state) for (const t of this.state) gl.deleteTexture(t);
     if (this.fbo) for (const f of this.fbo) gl.deleteFramebuffer(f);
     if (this.reduceFbo) gl.deleteFramebuffer(this.reduceFbo);
+    if (this.flowFbo) gl.deleteFramebuffer(this.flowFbo);
     this.state = null;
     this.fbo = null;
     this.reduceFbo = null;
+    this.flowFbo = null;
   }
 }

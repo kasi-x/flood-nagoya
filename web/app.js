@@ -1,6 +1,6 @@
 // 名古屋市 雨水流出エミュレーター — map view, region selection, UI wiring.
 import { bindBenchHandle, PerfHud, runBench } from "./perf.js?v=26";
-import { FloodSim, MODE_DEPTH, MODE_MAXDEPTH, MODE_SPEED, MODE_TERRAIN } from "./sim.js?v=26";
+import { FloodSim, MODE_DEPTH, MODE_MAXDEPTH, MODE_SPEED, MODE_TERRAIN } from "./sim.js?v=28";
 import { ThreeView } from "./view3d.js?v=23";
 import { CesiumView } from "./view3d_cesium.js?v=30";
 import { DeckView } from "./view3d_deck.js?v=29";
@@ -1962,41 +1962,31 @@ const flow = {
 
 function flowCountFor() {
   const a = innerWidth * innerHeight;
-  return clamp(Math.round(a / 7000), 300, 2000);
+  return clamp(Math.round(a / 3500), 600, 4000);
 }
 
-/** Thin the full state to a 1/16 velocity grid (throttled to 4 Hz). */
+/** Thin the full state to a 1/16 velocity grid via GPU reduce (throttled to 4 Hz). */
 function flowReadState() {
   if (!sim || !sim.W || mode !== "sim" || sim.mapMode) return;
-  const gl = sim.gl;
-  const fw = Math.max(1, Math.floor(sim.W / 16));
-  const fh = Math.max(1, Math.floor(sim.H / 16));
-  // reuse the reduce fbo pipeline: bind our own target by rendering state at 1/16
-  gl.bindFramebuffer(gl.FRAMEBUFFER, sim.fbo[sim.flip]);
-  const full = new Float32Array(sim.W * sim.H * 4);
-  gl.readPixels(0, 0, sim.W, sim.H, gl.RGBA, gl.FLOAT, full);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  const { data, w: fw, h: fh } = sim.readFlowField();
   const qx = new Float32Array(fw * fh), qy = new Float32Array(fw * fh);
   const hg = new Float32Array(fw * fh);
-  for (let j = 0; j < fh; j++) {
-    for (let i = 0; i < fw; i++) {
-      let sx = 0, sy = 0, sh = 0, c = 0;
-      for (let dy = 0; dy < 16; dy += 4) {
-        for (let dx = 0; dx < 16; dx += 4) {
-          const sxp = Math.min(sim.W - 1, i * 16 + dx);
-          const syp = Math.min(sim.H - 1, j * 16 + dy);
-          const k = (syp * sim.W + sxp) * 4;
-          sx += full[k + 1]; sy += full[k + 2]; sh += full[k]; c++;
-        }
-      }
-      const o = j * fw + i;
-      qx[o] = sx / c; qy[o] = sy / c; hg[o] = sh / c;
-    }
+  for (let i = 0; i < fw * fh; i++) {
+    hg[i] = data[i * 4];
+    qx[i] = data[i * 4 + 1];
+    qy[i] = data[i * 4 + 2];
   }
   flow.field = { qx, qy };
   flow.hgrid = hg;
   flow.fieldW = fw; flow.fieldH = fh;
   flow.gw = sim.W; flow.gh = sim.H;
+  // debug: expose max velocity for tuning
+  let maxV = 0;
+  for (let i = 0; i < fw * fh; i++) {
+    const h = hg[i];
+    if (h > 0.02) maxV = Math.max(maxV, Math.hypot(qx[i], qy[i]) / h);
+  }
+  window.__flowMaxV = maxV;
 }
 
 /** Canvas-normalized point -> field grid index. */
@@ -2011,11 +2001,15 @@ function flowCellAt(u, v) {
   return j * flow.fieldW + i;
 }
 
-/** Screen-space velocity vector at a normalized canvas point. */
+/** Screen-space velocity vector at a normalized canvas point.
+ * Returns [vx, vy] in grid-px/frame units (flux q / depth h). */
 function flowVecAt(u, v) {
   if (!flow.field) return null;
   const o = flowCellAt(u, v);
-  return [flow.field.qx[o], flow.field.qy[o]];
+  const h = flow.hgrid[o];
+  if (h < 0.02) return null;   // dry or nearly dry
+  const qx = flow.field.qx[o], qy = flow.field.qy[o];
+  return [qx / h, qy / h];     // velocity = flux / depth
 }
 
 function flowDepthAt(u, v) {
@@ -2034,39 +2028,50 @@ function flowReseed(p) {
 
 function flowStep(ctx, w, h, dtMs) {
   if (!flow.on || mode !== "sim" || view3dOn || sim.mapMode || !flow.field) return;
-  const speed = 0.00042 * Math.min(3, Math.max(0.6, 60 / Math.max(fpsInfo.dtAvg, 1)));
+  const dt = Math.min(50, dtMs) / 1000;   // seconds, capped
+  const view = sim.view;
+  const cv = $("gl");
+  // grid px -> canvas px scale (view.z is canvas px per grid px)
+  const pxPerGrid = view.z;
   ctx.lineCap = "round";
-  ctx.lineWidth = 1.35;
   for (const p of flow.parts) {
     const v = flowVecAt(p.x, p.y);
     const sp = v ? Math.hypot(v[0], v[1]) : 0;
     const prevX = p.x * w, prevY = p.y * h;
-    if (v && sp > 0.0015) {
-      // advect along the flux direction, normalized + scaled by log speed
-      const t = clamp(Math.log(sp + 0.02) / Math.log(30), 0.15, 1);
-      const inv = speed * (0.35 + 0.65 * t);
+    if (v && sp > 0.02) {
+      // advect: real velocity sets relative speed, scaled to visible motion
+      const t = clamp(Math.log(sp + 0.1) / Math.log(8), 0, 1);   // 0..1 speed
+      const speed = 0.0025 * Math.min(3, Math.max(0.6, 60 / Math.max(fpsInfo.dtAvg, 1)));
+      const step = speed * (0.2 + 0.8 * t);
       const nrm = 1 / (sp + 1e-9);
-      p.x += v[0] * nrm * inv;
-      p.y += v[1] * nrm * inv;
-      ctx.strokeStyle = flowColor(t);
+      p.x += v[0] * nrm * step;
+      p.y += v[1] * nrm * step;
+      const depth = flowDepthAt(p.x, p.y);
+      const d = clamp(depth / 0.3, 0.2, 1);                      // depth weight
+      ctx.strokeStyle = flowColor(t, d);
+      ctx.lineWidth = 2.0 + 3.0 * t * d;
       ctx.beginPath();
       ctx.moveTo(prevX, prevY);
-      ctx.lineTo(p.x * w, p.y * h);
+      // slight curve: midpoint pushed perpendicular for organic feel
+      const mx = (prevX + p.x * w) / 2, my = (prevY + p.y * h) / 2;
+      const px = -(p.y * h - prevY) * 0.08, py = (p.x * w - prevX) * 0.08;
+      ctx.quadraticCurveTo(mx + px, my + py, p.x * w, p.y * h);
       ctx.stroke();
     }
     p.age += dtMs;
-    // fade & reseed: long comet trails, like the reference wind maps
-    if (p.age > 2200 || p.x < -0.02 || p.x > 1.02 || p.y < -0.02 || p.y > 1.02 || (v && sp <= 0.0015 && p.age > 250)) {
+    // fade & reseed: longer trails for fast water, quick death for stagnant
+    const maxAge = 1200 + 2000 * clamp(sp / 3, 0, 1);
+    if (p.age > maxAge || p.x < -0.02 || p.x > 1.02 || p.y < -0.02 || p.y > 1.02 || (v && sp <= 0.02 && p.age > 200)) {
       flowReseed(p);
     }
   }
 }
 
-/** 風マップ風: 遅いストリーム→白の速い流れ。 */
-function flowColor(t) {
-  const a = 0.26 + 0.55 * t;
-  const r = Math.round(110 + 145 * t);
-  const g = Math.round(225 + 30 * t);
+/** 風マップ風: 遅い=薄青、速い=白、深い=不透明。 */
+function flowColor(t, d) {
+  const a = Math.min(1, (0.6 + 0.4 * t) * d);
+  const r = Math.round(20 + 235 * t);
+  const g = Math.round(160 + 95 * t);
   const b = 255;
   return `rgba(${r},${g},${b},${a.toFixed(2)})`;
 }
@@ -2140,12 +2145,11 @@ function loop() {
     const f2 = $("flow");
     const fctx = f2.getContext("2d");
     fctx.setTransform(1, 0, 0, 1, 0, 0);
-    fctx.globalCompositeOperation = "destination-in";
-    fctx.fillStyle = "rgba(0,0,0,0.87)";
+    fctx.globalCompositeOperation = "destination-out";
+    fctx.fillStyle = "rgba(0,0,0,0.06)";
     fctx.fillRect(0, 0, f2.width, f2.height);
     fctx.globalCompositeOperation = "lighter";
     flowStep(fctx, f2.width, f2.height, dtMs);
-    fctx.globalCompositeOperation = "source-over";
   }
   if (now - lastStatsT > 1000) {
     lastStatsT = now;
