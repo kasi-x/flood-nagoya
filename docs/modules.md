@@ -6,7 +6,8 @@
 
 1. **データ取得・解析** — `config` / `gsitiles` / `plateau_buildings` / `hydro`
 2. **Webアセット生成・配信** — `pipeline` / `server` / `precompute`
-3. **観測降雨シナリオ生成** — `amedas` / `spatial` / `xrain` / `msm`
+3. **観測降雨シナリオ生成** — `amedas` / `spatial` / `xrain` / `msm` / `historical`
+4. **水文・水理モデル** — `river` / `underground`
 
 ## 定数・パス
 
@@ -19,6 +20,12 @@
 ::: flood_nagoya.plateau_buildings
 
 ::: flood_nagoya.hydro
+
+## 水文・水理モデル
+
+::: flood_nagoya.river
+
+::: flood_nagoya.underground
 
 ## Webアセット生成・配信
 
@@ -37,6 +44,8 @@
 ::: flood_nagoya.xrain
 
 ::: flood_nagoya.msm
+
+::: flood_nagoya.historical
 
 ## Webフロントエンド (web/)
 
