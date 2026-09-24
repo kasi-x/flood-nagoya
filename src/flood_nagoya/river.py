@@ -47,7 +47,7 @@ class ChannelField:
     slope: npt.NDArray[np.float64]  # local bed slope (D8)
     width_m: npt.NDArray[np.float64]  # channel width
     depth_m: npt.NDArray[np.float64]  # bankfull depth below the rim
-    lag_s: npt.NDArray[np.float64]  # concentration-time lag per cell
+    lag_s: npt.NDArray[np.float64]  # time of concentration per cell [s]
 
 
 def extract_channels(
@@ -83,8 +83,31 @@ def extract_channels(
     area_km2 = area_m2 / 1e6
     width_m = np.where(mask, WIDTH_A * np.power(area_km2, WIDTH_B), 0.0)
     depth_m = np.where(mask, DEPTH_C * np.power(area_km2, DEPTH_D), 0.0)
-    # Concentration-time lag ~ A^0.3 hours (Kirpich-style, coarse).
-    lag_s = np.where(mask, np.power(np.maximum(area_km2, 0.01), 0.3) * 3600.0, 0.0)
+    # Time of concentration: longest upstream path length / effective
+    # channel velocity.  L = longest path to the farthest head cell,
+    # S = head-to-cell relief / L.  Cells are processed high→low so each
+    # cell's longest upstream path is complete before it propagates.
+    flag_to_offset = {1 << i: off for i, off in enumerate(offsets)}
+    longest = np.zeros((h, w), dtype=np.float64)
+    z_head = filled.copy()
+    order = np.argsort(filled, axis=None)[::-1]
+    ys, xs = np.unravel_index(order, (h, w))
+    for y, x in zip(ys.tolist(), xs.tolist(), strict=True):
+        flag = int(directions[y, x])
+        if flag == 0:
+            continue
+        ddx, ddy = flag_to_offset[flag]
+        ny, nx = y + ddy, x + ddx
+        dist = dx * (1.4142135623730951 if ddx and ddy else 1.0)
+        cand = longest[y, x] + dist
+        if cand > longest[ny, nx]:
+            longest[ny, nx] = cand
+            z_head[ny, nx] = z_head[y, x]
+    # Effective velocity v = 1.5·√(S/0.01) m/s (Manning-like √S scaling,
+    # 1.5 m/s at 1% slope), clamped to a plausible channel range.
+    s_path = (z_head - filled) / np.maximum(longest, 1e-6)
+    v_eff = np.clip(1.5 * np.sqrt(np.maximum(s_path, 1e-6) / 0.01), 0.3, 3.0)
+    lag_s = np.where(mask, longest / v_eff, 0.0)
     return ChannelField(
         mask=mask,
         area_m2=area_m2,

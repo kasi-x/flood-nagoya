@@ -71,13 +71,31 @@ export function extractChannels(terrainData, W, H, dx) {
     if (nx < 0 || nx >= W || ny < 0 || ny >= H) continue;
     acc[ny * W + nx] += acc[i];
   }
-
   const mask = new Uint8Array(W * H);
   const area = new Float64Array(W * H);
   const slope = new Float64Array(W * H);
   const width = new Float64Array(W * H);
   const depth = new Float64Array(W * H);
   const lag = new Float64Array(W * H);
+
+  // Time of concentration: longest upstream path length / effective
+  // channel velocity.  longest[i] = longest path to the farthest head
+  // cell; zHead[i] = that head cell's elevation.  `order` is already
+  // high→low, so each cell's longest upstream path is complete before
+  // it propagates downstream.
+  const longest = new Float64Array(W * H);
+  const zHead = Float64Array.from(z);
+  for (const i of order) {
+    const f = dir[i];
+    if (f < 0) continue;
+    const x = i % W, y = (i / W) | 0;
+    const nx = x + D8[f][0], ny = y + D8[f][1];
+    const dist = dx * (D8[f][0] && D8[f][1] ? Math.SQRT2 : 1);
+    const cand = longest[i] + dist;
+    const j = ny * W + nx;
+    if (cand > longest[j]) { longest[j] = cand; zHead[j] = zHead[i]; }
+  }
+
   for (let i = 0; i < W * H; i++) {
     if (acc[i] < ACC_THRESHOLD_CELLS) continue;
     mask[i] = 1;
@@ -99,8 +117,11 @@ export function extractChannels(terrainData, W, H, dx) {
     } else {
       slope[i] = MIN_SLOPE;
     }
-    // concentration-time lag ~ A^0.3 hours (Kirpich-style, coarse)
-    lag[i] = Math.pow(Math.max(km2, 0.01), 0.3) * 3600;
+    // tc = L / v; v = 1.5·√(S/0.01) m/s (Manning-like √S, 1.5 m/s at 1%),
+    // clamped to a plausible channel range.
+    const sPath = (zHead[i] - z[i]) / Math.max(longest[i], 1e-6);
+    const vEff = Math.min(3.0, Math.max(0.3, 1.5 * Math.sqrt(Math.max(sPath, 1e-6) / 0.01)));
+    lag[i] = longest[i] / vEff;
   }
   return { mask, area, slope, width, depth, lag, W, H };
 }
