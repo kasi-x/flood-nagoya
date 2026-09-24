@@ -91,3 +91,36 @@
   河道放流が続く。実測 (名古屋大学周辺): lag 960–1568s。
 - 河道ネットワークの動的ルーティングは未実装 (静的フィールドのみ)
 - 検証: 名古屋大学周辺で河道セル648個を検出、100mm/h降雨で2.2mの溢水を確認
+
+## 衛星検証 (2026-09-25 実装)
+
+### 概要
+- `src/flood_nagoya/satellite.py`: ASF Search (Sentinel-1/NISAR) + NASA CMR
+  (SWOT/IMERG) + Tellus (JAXA) の検索・ダウンロード。認証は
+  `EARTHDATA_TOKEN` / `~/.netrc` / `TELLUS_API_TOKEN`。
+- `src/flood_nagoya/validate.py`: 衛星水域マップとシミュレーション最大
+  水深の比較。reproject は rioxarray/rasterio (experiment extra) に委譲、
+  sim格子への最終写像は z15ラティスの逆変換 `sim_lonlat` + bilinear
+  サンプリング。
+- CLI: `flood-nagoya validate --region <precomputed dir> [--swot …]
+  [--swot-pre …] [--nisar-pre/--nisar-post …] [--s1-pre/--s1-post …]`
+  → `reports/satellite/<region>/validation.json` + overlay PNG。
+
+### 2026-09-08 洪水での初回結果 (nagoya_univ リージョン)
+- SWOT (9/10 pass-575 vs 8/20 pass-560 ベースライン差分):
+  新規水域 23,844セル。F1=0.068 P=0.040 R=0.209。
+  モデルは街路網に広く浅い浸水を予測するのに対し、SWOTは池・低地の
+  まとまった湛水のみ検出 → 分布型の違いが主な不一致要因。
+- NISAR GCOV 上りペア (8/29 vs 9/10, HH): 新規水域 187セルのみ。
+  9/10はピークから約2日後で市街地の湛水はほぼ退去済みと解釈。
+  下りペア (8/28 vs 9/9) の方が時相が良い → 検証継続中。
+- Sentinel-1 GRD: ASF datapool は Earthdata アプリ承認 (EULA) が必要。
+  `https://urs.earthdata.nasa.gov/approve_app?client_id=BO_n7nTIlMljdvU6kRRB3g`
+
+### 残課題
+- NISAR 下りペア (8/28 vs 9/9) での変化検出 (ダウンロード中)
+- Sentinel-1: EULA承認後に GRD ペア (8/29 vs 9/10) を検証
+- L-band 市街地洪水では double-bounce 増光が支配的な可能性 →
+  増光側 (>+3dB) の検出も評価する
+- SWOT water_frac 閾値の感度解析 (0.5 固定 → 0.3/0.7)
+- モデル過大予測の原因調査: 排水・浸透パラメータの再較定

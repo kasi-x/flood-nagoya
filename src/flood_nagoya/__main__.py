@@ -126,10 +126,28 @@ def _build_parser() -> ArgumentParser:
     )
     hist_all.add_argument("--out", type=Path, default=None, help="出力先ディレクトリ (既定: web/scenarios)")
 
+    val = sub.add_parser(
+        "validate",
+        help="衛星観測 (SWOT/NISAR/Sentinel-1) と事前計算済み浸水範囲を比較する",
+    )
+    val.add_argument("--region", type=Path, required=True, help="precomputedリージョンのディレクトリ (meta.jsonを含む)")
+    val.add_argument("--swot", type=Path, default=None, help="SWOT L2 raster .nc (事後)")
+    val.add_argument(
+        "--swot-pre",
+        type=Path,
+        default=None,
+        help="SWOT L2 raster .nc (事前ベースライン、常水差し引き用)",
+    )
+    val.add_argument("--nisar-pre", type=Path, default=None, help="NISAR GCOV .h5 (事前)")
+    val.add_argument("--nisar-post", type=Path, default=None, help="NISAR GCOV .h5 (事後)")
+    val.add_argument("--s1-pre", type=Path, default=None, help="Sentinel-1 GRD SAFE展開済みdir (事前)")
+    val.add_argument("--s1-post", type=Path, default=None, help="Sentinel-1 GRD SAFE展開済みdir (事後)")
+    val.add_argument("--out", type=Path, default=None, help="出力先 (既定: reports/satellite/<region名>)")
+
     return parser
 
 
-def _dispatch(parsed: Namespace) -> None:
+def _dispatch(parsed: Namespace) -> None:  # noqa: C901 - one branch per subcommand
     """Run the command selected by the parsed arguments."""
     if parsed.command == "download-dem":
         from .gsitiles import download_bbox  # noqa: PLC0415 - keep CLI startup fast
@@ -170,6 +188,30 @@ def _dispatch(parsed: Namespace) -> None:
             underground=parsed.underground,
             river=parsed.river,
         )
+    elif parsed.command == "validate":
+        from .validate import run_validation  # noqa: PLC0415 - keep CLI startup fast
+        from .validate import summarize  # noqa: PLC0415
+
+        nisar_pair = (
+            (parsed.nisar_pre, parsed.nisar_post)
+            if parsed.nisar_pre and parsed.nisar_post
+            else None
+        )
+        s1_pair = (
+            (parsed.s1_pre, parsed.s1_post) if parsed.s1_pre and parsed.s1_post else None
+        )
+        out = parsed.out or Path("reports/satellite") / parsed.region.name
+        results = run_validation(
+            parsed.region / "meta.json",
+            parsed.region,
+            swot_nc=parsed.swot,
+            swot_pre_nc=parsed.swot_pre,
+            nisar_pair=nisar_pair,
+            s1_pair=s1_pair,
+            out_dir=out,
+        )
+        for name, res in results.items():
+            print(f"{name}: {summarize(res)}")
 
 
 def main(args: Sequence[str] | None = None) -> None:

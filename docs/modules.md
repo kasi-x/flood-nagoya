@@ -8,6 +8,7 @@
 2. **Webアセット生成・配信** — `pipeline` / `server` / `precompute`
 3. **観測降雨シナリオ生成** — `amedas` / `spatial` / `xrain` / `msm` / `historical`
 4. **水文・水理モデル** — `river` / `underground`
+5. **衛星検証** — `satellite` / `validate` (experiment extra の geo 依存を使用)
 
 ## 定数・パス
 
@@ -46,6 +47,12 @@
 ::: flood_nagoya.msm
 
 ::: flood_nagoya.historical
+
+## 衛星検証
+
+::: flood_nagoya.satellite
+
+::: flood_nagoya.validate
 
 ## Webフロントエンド (web/)
 

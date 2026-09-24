@@ -67,17 +67,23 @@ experiment = [
     # 実験・探索・デバッグ用の依存 (marimo / 可視化 / LLM API)。
     # uv: `uv sync --extra experiment` で追加インストール。
     # pixi: `[tool.pixi.feature.experiment]` として分離。
+    "earthaccess>=0.17",
+    "h5py>=3.10",
     "httpx>=0.27,<1",
     "ipykernel",
     "marimo",
     "matplotlib>=3.8",
     "nbclient",
     "nbstripout",
+    "netCDF4>=1.7",
     "openai>=2.53.0,<3",
     "pendulum>=3.2.0,<4",
     "plotly>=5.20",
+    "pyproj>=3.6",
+    "rioxarray>=0.19",
     "seaborn>=0.13.2",
     "wandb>=0.16.4",
+    "xarray>=2025.0",
 ]
 
 

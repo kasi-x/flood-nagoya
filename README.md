@@ -268,6 +268,7 @@ just docs    # APIドキュメント生成 (mkdocstrings)
 | `just historical-all` | 全既往災害AMeDASシナリオ生成 |
 | `just precompute-surge 1.5` | 海面水位1.5m上昇の事前計算 |
 | `just precompute --underground` | 地下空間内水モデル付き事前計算 |
+| `uv run python -m flood_nagoya validate --region web/precomputed/<r> --swot <nc> [--swot-pre <nc>] [--nisar-pre/--nisar-post <h5>]` | 衛星観測 (SWOT/NISAR/S1) と浸水範囲を比較 → `reports/satellite/` |
 
 ## 🔄 テンプレートからの更新
 
