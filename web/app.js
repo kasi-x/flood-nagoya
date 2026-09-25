@@ -1852,7 +1852,7 @@ function wireBar() {
     if (tl.seeking) { seekToken++; tl.seeking = false; }   // 進行中のシークを中断して引き取る
     tl.drag = true;
     tl.target = posToTime(e.clientX);
-    track.setPointerCapture(e.pointerId);
+    try { track.setPointerCapture(e.pointerId); } catch { /* synthetic/pointerless events */ }
     drawBar();
   });
   track.addEventListener("pointermove", (e) => {
