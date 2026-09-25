@@ -2,7 +2,7 @@
 import { bindBenchHandle, PerfHud, runBench } from "./perf.js?v=26";
 import { FloodSim, MODE_DEPTH, MODE_MAXDEPTH, MODE_SPEED, MODE_TERRAIN } from "./sim.js?v=28";
 import { ThreeView } from "./view3d.js?v=23";
-import { CesiumView } from "./view3d_cesium.js?v=30";
+import { CesiumView } from "./view3d_cesium.js?v=31";
 import { DeckView } from "./view3d_deck.js?v=29";
 import { extractChannels } from "./river.js?v=2";
 
@@ -33,11 +33,11 @@ const LOCATIONS = [
 // (lon 136.7800 / lat 35.1990, along the Shonai river, Nishi-ku side).
 const REGIONS = [
   { name: "名古屋駅周辺", lon: 136.8817, lat: 35.1709, halfW: 900, halfH: 700 },
-  { name: "名古屋駅・栄周辺", lon: 136.8942, lat: 35.1705, halfW: 1100, halfH: 800 },
-  { name: "栄", lon: 136.9066, lat: 35.1700, halfW: 900, halfH: 700 },
-  { name: "名古屋大学周辺", lon: 136.9667, lat: 35.1546, halfW: 900, halfH: 700 },
-  { name: "千種駅周辺", lon: 136.9306, lat: 35.1702, halfW: 900, halfH: 700 },
-  { name: "9/8 降雨ピーク域 (西区周辺)", lon: 136.7800, lat: 35.1990, halfW: 900, halfH: 700, scenario: "rain_20260908_msm.json" },
+  { name: "名古屋駅・栄周辺", lon: 136.8942, lat: 35.1705, halfW: 1100, halfH: 800, replay: "sakai_msm" },
+  { name: "栄", lon: 136.9066, lat: 35.1700, halfW: 900, halfH: 700, replay: "sakai_msm" },
+  { name: "名古屋大学周辺", lon: 136.9667, lat: 35.1546, halfW: 900, halfH: 700, replay: "nagoya_univ_msm" },
+  { name: "千種駅周辺", lon: 136.9306, lat: 35.1702, halfW: 900, halfH: 700, replay: "sakai_msm" },
+  { name: "9/8 降雨ピーク域 (西区周辺)", lon: 136.7800, lat: 35.1990, halfW: 900, halfH: 700, scenario: "rain_20260908_msm.json", replay: "nishi_msm" },
 ];
 
 const $ = (id) => document.getElementById(id);
@@ -237,7 +237,12 @@ function init() {
         welcomeDlg.close();
         if (regionIdx != null) {
           const reg = REGIONS[Number(regionIdx)];
-          if (reg) startRegionSim(reg);
+          // 事前計算リプレイがあればそちらを再生 (ライブ計算でシークが詰まるのを防ぐ)。
+          // available() は遅延ロードなので完了を待ってから判定する。
+          playback.available().then(() => {
+            if (reg?.replay && playback.dirs.includes(reg.replay)) startPlayback(reg.replay);
+            else if (reg) startRegionSim(reg);
+          });
         } else if (action === "city") {
           $("cityBtn")?.click();
         } else if (action === "replay") {
@@ -418,7 +423,13 @@ function startDefaultScene() {
     const reg = Number.isNaN(idx)
       ? REGIONS.find((x) => x.name.includes(rq))
       : REGIONS[idx];
-    if (reg) { startRegionSim(reg); return; }
+    if (reg) {
+      playback.available().then(() => {
+        if (reg.replay && playback.dirs.includes(reg.replay)) startPlayback(reg.replay);
+        else startRegionSim(reg);
+      });
+      return;
+    }
   }
   if (location.search.includes("demo")) return;
   startDefaultScene.done = true;
@@ -2117,7 +2128,7 @@ function loop() {
   if (!sim.W || sim.mapMode) return;
   frameNo++;
   rainFrames.update();
-  if (view3dOn && view3d && frameNo % 8 === 0) {
+  if (view3dOn && view3d && !playback.on && frameNo % 8 === 0) {
     view3d.updateWater(sim.readState());
     // deck.glの雨パーティクルに現在の雨強度を伝える
     if (view3dKind === "deck") {

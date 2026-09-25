@@ -214,7 +214,7 @@ void main() {
 }`;
 
 const WATER_FRAG = `
-// uFront は material.shaderSource で宣言済み (前置される)
+// uFront/uFlow/uTime は material.shaderSource で宣言済み (前置される)
 in vec2 v_st;
 in float v_depth;
 vec3 depthRamp(float d) {
@@ -228,10 +228,17 @@ vec3 depthRamp(float d) {
 void main() {
   if (v_depth < 0.01) discard;
   vec3 c = depthRamp(v_depth);
-  // 新規冠水フロント: wet-since 年齢が浅いほど琥珀色に発光 (~90sで減衰)
+  // 新規冠水フロント: wet-since 年齢が浅いほど琥珀色に発光 (短時間で減衰)
   float age = texture(uFront_1, v_st).r * 255.0 * 4.0;
-  float front = (age < 90.0) ? exp(-age / 30.0) : 0.0;
-  c = mix(c, vec3(1.0, 0.72, 0.22), front * 0.8);
+  float front = (age < 60.0) ? exp(-age / 18.0) : 0.0;
+  c = mix(c, vec3(1.0, 0.72, 0.22), front * 0.45);
+  // 流速方向に走る小さな輝度縞: 水が「流れて」見えるアニメーション。
+  vec2 fl = texture(uFlow_3, v_st).gb * 2.0 - 1.0;
+  float sp = length(fl);
+  vec2 dir = sp > 1e-3 ? fl / sp : vec2(1.0, 0.0);
+  float k = mix(80.0, 220.0, min(sp, 1.0));
+  float wave = sin(dot(v_st, dir) * k - uTime_4 * (1.0 + 3.0 * sp));
+  c *= 1.0 + wave * (0.03 + 0.11 * min(sp, 1.0));
   float a = clamp(v_depth * 5.0, 0.18, 0.92);
   out_FragColor = vec4(c, a);
 }`;
@@ -340,7 +347,12 @@ export class CesiumView {
     this.canvas = viewer.canvas;   // スクリーンショット用 (app.js互換)
     viewer.scene.globe.depthTestAgainstTerrain = true;   // 記事の設定
     viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#9cc0e0");
-    viewer.scene.postRender.addEventListener(() => { this._frameCount++; this._stepFlow(); });
+    viewer.scene.postRender.addEventListener(() => {
+      this._frameCount++;
+      this._stepFlow();
+      const u = this._waterAppearance?.material?.uniforms;
+      if (u) u.uTime = performance.now() / 1000;
+    });
     if (this._pendingRegion) this.setRegion(...this._pendingRegion);
     return this;
   }
@@ -612,13 +624,6 @@ export class CesiumView {
           Array.from({ length: nx * ny }, (_, i) =>
             new Cesium.Cartesian3(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]))),
       });
-      // 水深/フロントは canvas ユニフォーム (fabric で sampler2D として登録)。
-      // Cesium.Texture を直接渡すと getUniformType が .type を読めず落ちるため、
-      // canvas を渡して material.update() にテクスチャ化させる。
-      this._depthCanvas = document.createElement("canvas");
-      this._depthCanvas.width = this.stateW; this._depthCanvas.height = this.stateH;
-      this._frontCanvas = document.createElement("canvas");
-      this._frontCanvas.width = this.stateW; this._frontCanvas.height = this.stateH;
       const material = new Cesium.Material({
         fabric: {
           type: "WaterDepth",
@@ -627,13 +632,18 @@ export class CesiumView {
             uFront: this._frontCanvas,
             uUp: Cesium.Cartesian3.normalize(
               Cesium.Cartesian3.fromDegrees(lonC, latC, 0), new Cesium.Cartesian3()),
+            uFlow: this._frontCanvas,   // プレースホルダ: 後で実データに差し替え
+            uTime: 0.0,
           },
           // source 内で各ユニフォームを参照すると createUniform が
-          // uDepth_0/uFront_1/uUp_2 に改名して宣言・バインドする。
-          // 本体の色計算は fragmentShaderSource 側で行うのでここでは参照だけ。
+          // uDepth_0/uFront_1/uUp_2/uFlow_3/uTime_4 に改名して宣言・バインドする
+          // (uniforms オブジェクトの挿入順)。vertex/fragment でその名前を使う。
           source: "czm_material czm_getMaterial(czm_materialInput materialInput) {\n"
             + "  czm_material m = czm_getDefaultMaterial(materialInput);\n"
-            + "  m.diffuse = texture(uDepth, materialInput.st).rgb + texture(uFront, materialInput.st).rgb + uUp;\n"
+            + "  m.diffuse = texture(uDepth, materialInput.st).rgb\n"
+            + "    + texture(uFront, materialInput.st).rgb\n"
+            + "    + texture(uFlow, materialInput.st).rgb\n"
+            + "    + uUp + vec3(uTime) * 0.0;\n"
             + "  return m;\n"
             + "}\n",
         },
@@ -664,13 +674,20 @@ export class CesiumView {
     await this._meshPromise;
   }
 
-  /** 水深・冠水年齢テクスチャを最新の状態で作り直す。 */
+  /** 水深・流速・冠水年齢テクスチャを最新の状態で作り直す。 */
   _uploadWaterTextures(rgba) {
     const Cesium = window.Cesium;
     const ctx = this.viewer.scene.context;
     const n = this.stateW * this.stateH;
     const depth = new Uint8Array(n * 4);
     const front = new Uint8Array(n * 4);
+    const flow = new Uint8Array(n * 4);
+    // 流速は領域全体の最大値で正規化して [-1,1] → [0,255] に詰める。
+    let qmax = 0.02;
+    for (let i = 0; i < n; i += 4) {
+      const sp = Math.hypot(rgba[i * 4 + 1], rgba[i * 4 + 2]);
+      if (sp > qmax) qmax = sp;
+    }
     for (let i = 0; i < n; i++) {
       const cm = Math.min(65535, Math.max(0, Math.round(rgba[i * 4] * 100)));
       depth[i * 4] = cm >> 8;
@@ -679,23 +696,33 @@ export class CesiumView {
       const age = Math.min(255, Math.round(this._frontAge[i] / 4));
       front[i * 4] = age;
       front[i * 4 + 3] = 255;
+      flow[i * 4 + 1] = Math.round((rgba[i * 4 + 1] / qmax * 0.5 + 0.5) * 255);
+      flow[i * 4 + 2] = Math.round((rgba[i * 4 + 2] / qmax * 0.5 + 0.5) * 255);
+      flow[i * 4 + 3] = 255;
     }
     // 実行時は Texture を直接代入できる (update関数が instanceof Texture を処理)。
     // 旧テクスチャは material.update() が破棄するのでここでは触らない。
     const u = this._waterAppearance.material.uniforms;
     u.uDepth = makeDataTex(Cesium, ctx, this.stateW, this.stateH, depth);
     u.uFront = makeDataTex(Cesium, ctx, this.stateW, this.stateH, front);
+    u.uFlow = makeDataTex(Cesium, ctx, this.stateW, this.stateH, flow);
   }
 
-  /** 冠水フロント: 各セルの wet-since 年齢を更新する。 */
+  /** 冠水フロント: 各セルの wet-since 年齢を更新する。状態が変わったときだけ年齢を進める。 */
   _updateFront(rgba) {
     const n = this.stateW * this.stateH;
     if (!this._frontAge || this._frontAge.length !== n) {
       this._frontAge = new Float32Array(n).fill(1e9);
       this._wet = new Uint8Array(n);
       this._frontAt = performance.now();
-      return;
+      this._frontSig = -1;
     }
+    // 同一状態 (停止中・リプレイの同一フレーム) では年齢を進めない。
+    // 軽量チェックサムで変化検出する。
+    let sig = 0;
+    for (let i = 0; i < n; i += 16) sig += rgba[i * 4];
+    if (sig === this._frontSig) return;
+    this._frontSig = sig;
     const now = performance.now();
     const dt = Math.min(5, (now - this._frontAt) / 1000);
     this._frontAt = now;
