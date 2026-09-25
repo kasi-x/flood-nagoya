@@ -144,25 +144,10 @@
     </div>
     <p class="welcome-sub">どこを対象にシミュレーションしますか？ 5m DEM × PLATEAU建物 × GPU浅水方程式で、降雨による内水氾濫をリアルタイムに再現します。</p>
     <div class="welcome-opts">
-      <button class="welcome-opt" data-region="5">
-        <svg class="ic"><use href="#i-waves" /></svg>
-        <b>西区・庄内川沿い</b>
-        <span>9/8 降雨ピーク域で河川氾濫を再現</span>
-      </button>
-      <button class="welcome-opt" data-region="1">
-        <svg class="ic"><use href="#i-grid" /></svg>
-        <b>名古屋駅・栄周辺</b>
-        <span>都心部の内水氾濫をシミュレーション</span>
-      </button>
       <button class="welcome-opt" data-region="3">
         <svg class="ic"><use href="#i-map" /></svg>
         <b>名古屋大学周辺</b>
-        <span>丘陵・台地縁の浸水挙動を確認</span>
-      </button>
-      <button class="welcome-opt" data-region="4">
-        <svg class="ic"><use href="#i-map" /></svg>
-        <b>千種駅周辺</b>
-        <span>駅周辺の市街地でシミュレーション</span>
+        <span>MSM較正済みリプレイ (9/8豪雨) を再生</span>
       </button>
       <button class="welcome-opt" data-action="map">
         <svg class="ic"><use href="#i-map" /></svg>
@@ -431,7 +416,7 @@
   <script type="importmap">
 { "imports": { "three": "./lib/three.module.min.js", "three/addons/": "./lib/addons/" } }
 </script>
-  <script type="module" src="app.js?v=42"></script>
+  <script type="module" src="app.js?v=43"></script>
 </body>
 
 </html>

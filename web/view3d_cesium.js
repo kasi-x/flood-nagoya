@@ -245,8 +245,6 @@ void main() {
 
 const WATER_MESH_NX = 160;          // 水面メッシュの頂点数 (x)
 const TERRAIN_SAMPLE_N = 22;        // sampleTerrain の疎グリッド幅
-const FLOW_N = 320;                 // 流線パーティクル数
-const FLOW_TRAIL = 7;               // 1粒子の軌跡点数
 const FRONT_WET_M = 0.05;           // 「冠水」とみなす水深
 
 /** RGBA8テクスチャを作る (depth cm-pack / front age 用)。 */
@@ -294,6 +292,10 @@ export class CesiumView {
     this._waterLayer = null;
     this._waterBlobUrl = null;
     this._waterCanvas = document.createElement("canvas");
+    // WaterDepth マテリアルのテクスチャユニフォーム初期値 (未設定だと
+    // Material生成で undefined.type を読んで例外になりメッシュが作れない)
+    this._depthCanvas = Object.assign(document.createElement("canvas"), { width: 4, height: 4 });
+    this._frontCanvas = Object.assign(document.createElement("canvas"), { width: 4, height: 4 });
     this._lastWaterAt = 0;
     this._frameCount = 0;
     // 水面メッシュ (地形追従の頂点変位) とフォールバック用フラットレイヤ
@@ -306,12 +308,11 @@ export class CesiumView {
     this._terrGrid = null;    // {n, heights} sampleTerrain の疎グリッド
     this._terrOff = 0;        // ローカルDEM→表示地形のオフセット (fallback用)
     this._meshPromise = null;
-    // 流線パーティクル (PolylineCollection の軌跡)
+    // 流れの表示: earth.nullschool 風ストリーク (画面空間キャンバス)
     this._flowOn = false;
-    this._flow = null;        // {n, pU, pV, pAge, pLife, carts, lines}
-    this._flowField = null;   // {qx, qy, h, gw, gh, qmax}
-    this._polylines = null;
-    this._lastFlowAt = 0;
+    this._flowField = null;   // {qx, qy, h, gw, gh, qmax} (粗い再配置用)
+    this._streaks = null;     // {parts, cv, ctx, dpr} ストリーク状態
+    this._camMoving = false;  // カメラ移動中はストリークを描かない (パララックス残像防止)
     // 分水域・流路オーバーレイ
     this._streamsLayer = null;
     this._streamsOn = false;
@@ -349,7 +350,7 @@ export class CesiumView {
     viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#9cc0e0");
     viewer.scene.postRender.addEventListener(() => {
       this._frameCount++;
-      this._stepFlow();
+      this._stepStreaks();
       const u = this._waterAppearance?.material?.uniforms;
       if (u) u.uTime = performance.now() / 1000;
     });
@@ -398,6 +399,7 @@ export class CesiumView {
     this._terrGrid = null;
     this._meshPromise = null;
     this._flowField = null;
+    if (this._streaks) this._streaks.parts = [];   // リージョン変更で粒子を撒き直す
     if (this._waterPrim) {
       this.viewer.scene.primitives.remove(this._waterPrim);
       this._waterPrim = null;
@@ -412,7 +414,7 @@ export class CesiumView {
       this._streamsLayer = null;
       this._streamsOn = false;
     }
-    this._initFlow();
+    this._initStreaks();
     this._ensureWaterMesh();
     const [west, south, east, north] = this.bbox;
     const lonC = (west + east) / 2, latC = (south + north) / 2;
@@ -478,7 +480,6 @@ export class CesiumView {
     if (now - this._lastWaterAt < 250) return;
     this._lastWaterAt = now;
     this._stateData = rgba;
-    this._buildFlowField(rgba);
     this._updateFront(rgba);
     if (this._waterAppearance) {
       this._uploadWaterTextures(rgba);
@@ -668,7 +669,8 @@ export class CesiumView {
       });
       this.viewer.scene.primitives.add(this._waterPrim);
     })().catch((e) => {
-      console.warn("水面メッシュの構築に失敗 (フラットレイヤに継続): ", e);
+      console.warn("水面メッシュの構築に失敗 (フラットレイヤに継続): ",
+        e && (e.message || e.stack || JSON.stringify(e)));
       this._waterAppearance = null;
     });
     await this._meshPromise;
@@ -734,168 +736,171 @@ export class CesiumView {
     }
   }
 
-  /* ---------------- 流線パーティクル (台風の流線風) ---------------- */
+  /* ---------------- 水流ストリーク (earth.nullschool 風) ---------------- */
 
-  /** 粗い qx/qy/depth グリッドを状態からサンプル (行0=南)。 */
-  _buildFlowField(rgba) {
-    const W = this.stateW, H = this.stateH;
-    const s = Math.max(1, Math.round(Math.max(W, H) / 128));
-    const gw = Math.max(2, Math.floor(W / s));
-    const gh = Math.max(2, Math.floor(H / s));
-    const qx = new Float32Array(gw * gh);
-    const qy = new Float32Array(gw * gh);
-    const h = new Float32Array(gw * gh);
-    let qmax = 0.02;
-    for (let j = 0; j < gh; j++) {
-      const row = Math.min(H - 1, j * s);   // field j = 南から (state行と同じ)
-      for (let i = 0; i < gw; i++) {
-        const col = Math.min(W - 1, i * s);
-        const k = (row * W + col) * 4;
-        const o = j * gw + i;
-        qx[o] = rgba[k + 1]; qy[o] = rgba[k + 2]; h[o] = rgba[k];
-        const sp = Math.hypot(qx[o], qy[o]);
-        if (sp > qmax) qmax = sp;
-      }
-    }
-    this._flowField = { qx, qy, h, gw, gh, qmax };
+  /** 状態RGBA (h,qx,qy) の (u,v) サンプル。v=0 が南。out={vx,vy,h}. */
+  _streakSample(u, v, out) {
+    const d = this._stateData, W = this.stateW, H = this.stateH;
+    if (!d || !W || !H) { out.h = 0; out.vx = 0; out.vy = 0; return; }
+    const i = Math.min(W - 1, Math.max(0, (u * (W - 1)) | 0));
+    const j = Math.min(H - 1, Math.max(0, (v * (H - 1)) | 0));
+    const k = (j * W + i) * 4;
+    const h = d[k];
+    out.h = h;
+    if (h > 1e-4) { out.vx = d[k + 1] / h; out.vy = d[k + 2] / h; }
+    else { out.vx = 0; out.vy = 0; }
   }
-
-  /** 双線形フィールドサンプル。u,v ∈ [0,1]、v=0 が南。 */
-  _sampleFlow(u, v, out) {
-    const f = this._flowField;
-    const fx = Math.min(Math.max(u * f.gw - 0.5, 0), f.gw - 1.001);
-    const fy = Math.min(Math.max(v * f.gh - 0.5, 0), f.gh - 1.001);
-    const i0 = Math.floor(fx), j0 = Math.floor(fy);
-    const i1 = Math.min(f.gw - 1, i0 + 1), j1 = Math.min(f.gh - 1, j0 + 1);
-    const ax = fx - i0, ay = fy - j0;
-    const mix2 = (a, b, c, d) => a + (b - a) * ax + (c - a) * ay + (a - b - c + d) * ax * ay;
-    out.qx = mix2(f.qx[j0 * f.gw + i0], f.qx[j0 * f.gw + i1],
-      f.qx[j1 * f.gw + i0], f.qx[j1 * f.gw + i1]);
-    out.qy = mix2(f.qy[j0 * f.gw + i0], f.qy[j0 * f.gw + i1],
-      f.qy[j1 * f.gw + i0], f.qy[j1 * f.gw + i1]);
-    out.h = mix2(f.h[j0 * f.gw + i0], f.h[j0 * f.gw + i1],
-      f.h[j1 * f.gw + i0], f.h[j1 * f.gw + i1]);
-  }
-
-  /** パーティクルと PolylineCollection を初期化する。 */
-  _initFlow() {
-    const Cesium = window.Cesium;
-    if (this._polylines) {
-      this.viewer.scene.primitives.remove(this._polylines);
-      this._polylines = null;
-    }
-    this._flow = null;
-    if (!this._flowOn || !this.viewer) return;
-    const coll = this.viewer.scene.primitives.add(new Cesium.PolylineCollection());
-    const n = FLOW_N;
-    const p = {
-      n,
-      pU: new Float64Array(n), pV: new Float64Array(n),
-      pAge: new Float64Array(n), pLife: new Float64Array(n),
-      carts: [], lines: [],
-    };
-    for (let i = 0; i < n; i++) {
-      p.pU[i] = Math.random(); p.pV[i] = Math.random();
-      p.pAge[i] = Math.random() * 1200;
-      p.pLife[i] = 1500 + Math.random() * 1600;
-      const carts = [];
-      for (let k = 0; k < FLOW_TRAIL; k++) carts.push(new Cesium.Cartesian3());
-      p.carts.push(carts);
-      const line = coll.add({
-        positions: carts,
-        width: 1.6,
-        material: Cesium.Material.fromType("Color", {
-          color: new Cesium.Color(0.5, 0.85, 1.0, 0.0),
-        }),
-      });
-      line.show = false;
-      p.lines.push(line);
-    }
-    this._polylines = coll;
-    this._flow = p;
-  }
-
-  /** 湿ったセルへ粒子を再配置し、軌跡を現位置に潰す。 */
-  _respawnFlow(i) {
-    const p = this._flow, f = this._flowField;
-    let bu = 0, bv = 0, bh = 0, found = false;
-    for (let a = 0; a < 14; a++) {
+  /** 湿った流れのあるセルへ粒子を撒き直す。遠くでは重要度で絞る。 */
+  _streakRespawn(p, minScore) {
+    const smp = this._streakSmp;
+    for (let a = 0; a < 20; a++) {
       const u = Math.random(), v = Math.random();
-      const hh = f.h[Math.min(f.gh - 1, v * f.gh | 0) * f.gw + Math.min(f.gw - 1, u * f.gw | 0)];
-      if (hh > 0.06) { p.pU[i] = u; p.pV[i] = v; found = true; break; }
-      if (hh > bh) { bh = hh; bu = u; bv = v; }
+      this._streakSample(u, v, smp);
+      if (smp.h < 0.03) continue;
+      const sp = Math.hypot(smp.vx, smp.vy);
+      if (sp < 0.02) continue;
+      if (smp.h * sp < minScore) continue;   // 遠景では流量の大きい流路だけ
+      p.u = u; p.v = v; p.age = 0;
+      p.life = 1800 + Math.random() * 2400;
+      return true;
     }
-    if (!found) {
-      if (bh > 0.03) { p.pU[i] = bu; p.pV[i] = bv; }
-      else return false;
-    }
-    const c = this._flowCart(p.pU[i], p.pV[i]);
-    for (const cart of p.carts[i]) Cesium.Cartesian3.clone(c, cart);
-    p.lines[i].positions = p.carts[i];
-    return true;
+    return false;
   }
 
-  /** u,v → 水面直上の Cartesian3 (水平のみ、下方向ベクターなし)。 */
-  _flowCart(u, v) {
+  /** 画面空間のストリークオーバーレイを構築する。 */
+  _initStreaks() {
+    if (this._streaks) return;
+    const cv = document.createElement("canvas");
+    cv.style.cssText = "position:absolute;inset:0;width:100%;height:100%;"
+      + "pointer-events:none;z-index:3;";
+    this.container.appendChild(cv);
+    this._streaks = {
+      cv, ctx: cv.getContext("2d"),
+      parts: [], smp: { vx: 0, vy: 0, h: 0 },
+      gain: 400,                 // v (m/s) → px/s の見た目ゲイン
+      minScore: 0,               // LOD: 表示に必要な最小 |q| = h·v
+      lastT: 0,
+    };
+    this._streakSmp = { vx: 0, vy: 0, h: 0 };
     const Cesium = window.Cesium;
-    const [west, south, east, north] = this.bbox;
-    const lon = west + (east - west) * u;
-    const lat = south + (north - south) * v;
-    const smp = this._flowSmp || (this._flowSmp = { qx: 0, qy: 0, h: 0 });
-    this._sampleFlow(u, v, smp);
-    const z = this._terrainHeightAt(u, v) + Math.max(smp.h, 0) + 0.4;
-    return Cesium.Cartesian3.fromDegrees(lon, lat, z);
+    // カメラ移動中は残像をクリア (パララックスで古いストリークが残るため)
+    this.viewer.camera.moveStart.addEventListener(() => {
+      this._camMoving = true;
+      const s = this._streaks;
+      if (s) s.ctx.clearRect(0, 0, s.cv.width, s.cv.height);
+    });
+    this.viewer.camera.moveEnd.addEventListener(() => { this._camMoving = false; });
   }
 
-  /** postRender から呼ばれる粒子移流 (約15fpsに間引き)。 */
-  _stepFlow() {
-    const p = this._flow;
-    if (!p || !this._flowOn || !this._flowField || !this.bbox) return;
+  /** ストリーク粒子を (再)生成する。 */
+  _seedStreaks() {
+    const s = this._streaks;
+    const area = this.container.clientWidth * this.container.clientHeight;
+    const n = Math.min(4000, Math.max(1200, Math.round(area / 900)));
+    s.parts = [];
+    for (let i = 0; i < n; i++) {
+      const p = { u: Math.random(), v: Math.random(), age: Math.random() * 2000, life: 0 };
+      this._streakRespawn(p, 0);
+      s.parts.push(p);
+    }
+  }
+
+  /** postRender: ストリークを1フレーム進めて描画する。 */
+  _stepStreaks() {
+    const s = this._streaks;
+    if (!this._flowOn || !s || !this._stateData || !this.bbox || !this.viewer) return;
+    if (!s.parts.length) this._seedStreaks();   // _stateData到着後に遅延シード
+    const Cesium = window.Cesium;
+    const cv = s.cv;
+    const w = this.container.clientWidth, hgt = this.container.clientHeight;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(hgt * dpr)) {
+      cv.width = Math.round(w * dpr); cv.height = Math.round(hgt * dpr);
+    }
+    const ctx = s.ctx;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // 前フレームを薄める。遠景では粒子の見え方が小さいので早めに消す。
+    const camH = this.viewer.camera.positionCartographic.height;
+    const lod = Math.min(1, Math.max(0.10, 2500 / Math.max(camH, 800)));   // 高い→小
+    ctx.globalCompositeOperation = "destination-out";
+    ctx.fillStyle = `rgba(0,0,0,${(0.10 + 0.20 * (1 - lod)).toFixed(2)})`;
+    ctx.fillRect(0, 0, w, hgt);
+    if (this._camMoving) { ctx.globalCompositeOperation = "source-over"; return; }
+
     const now = performance.now();
-    if (now - this._lastFlowAt < 66) return;
-    const dt = Math.min(now - this._lastFlowAt, 100) / 1000;
-    this._lastFlowAt = now;
-    const f = this._flowField;
-    const refU = Math.max(0.3, f.qmax / 0.45);
-    const smp = this._flowSmp || (this._flowSmp = { qx: 0, qy: 0, h: 0 });
-    const Cesium = window.Cesium;
-    for (let i = 0; i < p.n; i++) {
-      p.pAge[i] += dt * 1000;
-      this._sampleFlow(p.pU[i], p.pV[i], smp);
-      let sp = Math.hypot(smp.qx, smp.qy) / Math.max(smp.h, 0.03);
-      if ((smp.h < 0.035 || sp < 0.015 || p.pAge[i] > p.pLife[i]) && this._respawnFlow(i)) {
-        p.pAge[i] = 0;
-        this._sampleFlow(p.pU[i], p.pV[i], smp);
-        sp = Math.hypot(smp.qx, smp.qy) / Math.max(smp.h, 0.03);
+    const dt = Math.min(80, now - (s.lastT || now)) / 1000;
+    s.lastT = now;
+    s.minScore = 0.004 / lod;      // |q| (m²/s) の下限: 遠いほど大きい流れのみ
+    s.gain = 420 / Math.max(0.5, Math.min(3, camH / 5000));   // 近い→緩やか
+    const active = Math.max(1, Math.floor(s.parts.length * lod));
+    // 遠景 (高い) では粒子数を絞り、代表的な流れだけ残す。
+    const [west, south, east, north] = this.bbox;
+    const lonSpan = east - west, latSpan = north - south;
+    // 1度あたりの概算メートル (緯度35°)
+    const mLon = lonSpan * 91000, mLat = latSpan * 111000;
+    const smp = s.smp;
+    const C3 = Cesium.Cartesian3;
+    const wgs = new C3();
+    ctx.globalCompositeOperation = "lighter";
+    ctx.lineCap = "round";
+    for (let pi = 0; pi < active; pi++) {
+      const p = s.parts[pi];
+      p.age += dt * 1000;
+      this._streakSample(p.u, p.v, smp);
+      let sp = Math.hypot(smp.vx, smp.vy);
+      const dry = smp.h < 0.03 || sp < 0.02 || smp.h * sp < s.minScore;
+      if (dry || p.age > p.life) {
+        if (!this._streakRespawn(p, s.minScore)) { p.age = 0; continue; }
+        this._streakSample(p.u, p.v, smp);
+        sp = Math.hypot(smp.vx, smp.vy);
       }
-      const dead = smp.h < 0.03;
-      const line = p.lines[i];
-      if (dead) { line.show = false; continue; }
-      const tn = Math.min(1, Math.pow(Math.min(sp / refU, 1), 0.65));
-      const inv = 1 / Math.max(sp, 1e-6);
-      const cellsPerSec = 32 * (0.3 + 0.7 * tn);
-      p.pU[i] += smp.qx * inv * cellsPerSec * dt / f.gw;
-      p.pV[i] += smp.qy * inv * cellsPerSec * dt / f.gh;
-      if (p.pU[i] < -0.01 || p.pU[i] > 1.01 || p.pV[i] < -0.01 || p.pV[i] > 1.01) {
-        if (!this._respawnFlow(i)) { line.show = false; p.pAge[i] = 1e9; continue; }
+      // 画面速度 = 実速度を見た目に変換 (遅い水はじわっと、急流は速く)
+      const pxS = Math.min(28, (16 + 300 * Math.min(1, sp / 3.0)) * dt);   // px/frame
+      if (pxS < 0.15) continue;
+      const lon = west + p.u * lonSpan, lat = south + p.v * latSpan;
+      const z = this._terrainHeightAt(p.u, p.v) + Math.max(smp.h, 0) + 0.6;
+      C3.fromDegrees(lon, lat, z, Cesium.Ellipsoid.WGS84, wgs);
+      const scr = Cesium.SceneTransforms.worldToWindowCoordinates(this.viewer.scene, wgs);
+      if (!scr || scr.x < -40 || scr.x > w + 40 || scr.y < -40 || scr.y > hgt + 40) {
+        this._streakRespawn(p, s.minScore);
+        continue;
       }
-      // 軌跡: 1点ずらして先頭に新位置 (実際の流路を描く、直線ではない)
-      const carts = p.carts[i];
-      for (let k = 0; k < FLOW_TRAIL - 1; k++) {
-        Cesium.Cartesian3.clone(carts[k + 1], carts[k]);
-      }
-      Cesium.Cartesian3.clone(this._flowCart(p.pU[i], p.pV[i]), carts[FLOW_TRAIL - 1]);
-      line.positions = carts;
-      line.show = true;
-      line.material.uniforms.color = new Cesium.Color(
-        0.45 + 0.5 * tn, 0.8 + 0.2 * tn, 1.0, 0.25 + 0.6 * tn);
+      // 流れ方向に2m先をプローブ投影し、画面上の向きを得る
+      const inv = 2 / Math.max(sp, 1e-6);                    // 2m先までの係数
+      const lon2 = lon + smp.vx * inv / 91000;
+      const lat2 = lat + smp.vy * inv / 111000;
+      C3.fromDegrees(lon2, lat2, z, Cesium.Ellipsoid.WGS84, wgs);
+      const scr2 = Cesium.SceneTransforms.worldToWindowCoordinates(this.viewer.scene, wgs);
+      let dx, dy;
+      if (scr2) {
+        dx = scr2.x - scr.x; dy = scr2.y - scr.y;
+        const n = Math.hypot(dx, dy);
+        if (n < 0.01) { dx = pxS; dy = 0; }
+        else { dx = dx / n * pxS; dy = dy / n * pxS; }
+      } else { dx = pxS; dy = 0; }
+      // 粒子のワールド位置を流れ方向に pxS 分だけ進める
+      // (px→uv の逆算は近似: 画面上の pxS に対応する uv 変位を求める)
+      const pxPerM = Math.abs(scr2 ? Math.hypot(scr2.x - scr.x, scr2.y - scr.y) / 2 : 0) || 1e-6;
+      const stepM = Math.min(200, pxS / Math.max(pxPerM, 1e-6));  // 世界移動は200m/frameで上限
+      p.u += (smp.vx / Math.max(sp, 1e-6)) * stepM / Math.max(mLon, 1);
+      p.v += (smp.vy / Math.max(sp, 1e-6)) * stepM / Math.max(mLat, 1);
+      const t = Math.min(1, Math.pow(Math.min(sp / 2.5, 1), 0.6));
+      const a = (0.25 + 0.75 * t) * Math.min(1, smp.h / 0.4);
+      ctx.strokeStyle = `rgba(${Math.round(120 + 135 * t)},${Math.round(200 + 55 * t)},255,${a.toFixed(2)})`;
+      ctx.lineWidth = 1.1 + 1.8 * t;
+      ctx.beginPath();
+      ctx.moveTo(scr.x, scr.y);
+      ctx.lineTo(scr.x + dx, scr.y + dy);
+      ctx.stroke();
     }
+    ctx.globalCompositeOperation = "source-over";
   }
 
   setFlowEnabled(v) {
     this._flowOn = !!v;
-    if (v && !this._flow) this._initFlow();
-    if (this._polylines) this._polylines.show = !!v;
+    if (v && !this._streaks) this._initStreaks();
+    if (v && this._streaks && !this._streaks.parts.length) this._seedStreaks();
+    if (this._streaks) this._streaks.cv.style.display = v ? "" : "none";
   }
 
   /** 分水域・流路オーバーレイ (streams.png) を地形にドレープする。 */

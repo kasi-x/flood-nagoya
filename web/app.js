@@ -2,7 +2,7 @@
 import { bindBenchHandle, PerfHud, runBench } from "./perf.js?v=26";
 import { FloodSim, MODE_DEPTH, MODE_MAXDEPTH, MODE_SPEED, MODE_TERRAIN } from "./sim.js?v=28";
 import { ThreeView } from "./view3d.js?v=23";
-import { CesiumView } from "./view3d_cesium.js?v=31";
+import { CesiumView } from "./view3d_cesium.js?v=37";
 import { DeckView } from "./view3d_deck.js?v=29";
 import { extractChannels } from "./river.js?v=2";
 
