@@ -243,12 +243,16 @@ void main() {
   out_FragColor = vec4(c, a);
 }`;
 
-const WATER_MESH_NX = 160;          // 水面メッシュの頂点数 (x)
+const WATER_MESH_NX = 256;          // 水面メッシュの頂点数 (x)
 const TERRAIN_SAMPLE_N = 22;        // sampleTerrain の疎グリッド幅
 const FRONT_WET_M = 0.05;           // 「冠水」とみなす水深
 
-/** RGBA8テクスチャを作る (depth cm-pack / front age 用)。 */
-function makeDataTex(Cesium, ctx, w, h, u8) {
+/** RGBA8テクスチャを作る (depth cm-pack / front age / flow 用)。 */
+function makeDataTex(Cesium, ctx, w, h, u8, filter = "LINEAR") {
+  const f = filter === "NEAREST"
+    ? Cesium.TextureMinificationFilter.NEAREST : Cesium.TextureMinificationFilter.LINEAR;
+  const fm = filter === "NEAREST"
+    ? Cesium.TextureMagnificationFilter.NEAREST : Cesium.TextureMagnificationFilter.LINEAR;
   return new Cesium.Texture({
     context: ctx,
     width: w,
@@ -258,8 +262,8 @@ function makeDataTex(Cesium, ctx, w, h, u8) {
     source: { arrayBufferView: u8, width: w, height: h },
     flipY: false,   // row0 = v=0 = 南 (state配列の向きに合わせる)
     sampler: new Cesium.Sampler({
-      minificationFilter: Cesium.TextureMinificationFilter.LINEAR,
-      magnificationFilter: Cesium.TextureMagnificationFilter.LINEAR,
+      minificationFilter: f,
+      magnificationFilter: fm,
     }),
   });
 }
@@ -500,13 +504,13 @@ export class CesiumView {
    * シミュレーション状態 → 水面メッシュの水深テクスチャを更新。
    * メッシュ未準備の間だけフラットな画像レイヤにフォールバックする。
    */
-  updateWater(rgba) {
+  updateWater(rgba, snap = false) {
     if (!this.viewer || !this.bbox) return;
     const now = performance.now();
     if (now - this._lastWaterAt < 250) return;
     this._lastWaterAt = now;
     this._stateData = rgba;
-    this._updateFront(rgba);
+    this._updateFront(rgba, snap);
     if (this._waterAppearance) {
       this._uploadWaterTextures(rgba);
       // メッシュが立ち上がったらフラットレイヤは外す
@@ -728,16 +732,17 @@ export class CesiumView {
       flow[i * 4 + 2] = Math.round((rgba[i * 4 + 2] / qmax * 0.5 + 0.5) * 255);
       flow[i * 4 + 3] = 255;
     }
-    // 実行時は Texture を直接代入できる (update関数が instanceof Texture を処理)。
-    // 旧テクスチャは material.update() が破棄するのでここでは触らない。
     const u = this._waterAppearance.material.uniforms;
-    u.uDepth = makeDataTex(Cesium, ctx, this.stateW, this.stateH, depth);
+    // 建物セルの深度を隣接道路に滲ませないため NEAREST サンプル
+    u.uDepth = makeDataTex(Cesium, ctx, this.stateW, this.stateH, depth, "NEAREST");
     u.uFront = makeDataTex(Cesium, ctx, this.stateW, this.stateH, front);
     u.uFlow = makeDataTex(Cesium, ctx, this.stateW, this.stateH, flow);
   }
 
-  /** 冠水フロント: 各セルの wet-since 年齢を更新する。状態が変わったときだけ年齢を進める。 */
-  _updateFront(rgba) {
+  /** 冠水フロント: 各セルの wet-since 年齢を更新する。
+   * snap=true (シーク等の非連続更新) では全セルを「古い冠水」として扱い、
+   * 琥珀グローを発火させない。 */
+  _updateFront(rgba, snap = false) {
     const n = this.stateW * this.stateH;
     if (!this._frontAge || this._frontAge.length !== n) {
       this._frontAge = new Float32Array(n).fill(1e9);
@@ -746,7 +751,6 @@ export class CesiumView {
       this._frontSig = -1;
     }
     // 同一状態 (停止中・リプレイの同一フレーム) では年齢を進めない。
-    // 軽量チェックサムで変化検出する。
     let sig = 0;
     for (let i = 0; i < n; i += 16) sig += rgba[i * 4];
     if (sig === this._frontSig) return;
@@ -754,6 +758,14 @@ export class CesiumView {
     const now = performance.now();
     const dt = Math.min(5, (now - this._frontAt) / 1000);
     this._frontAt = now;
+    if (snap) {
+      // シーク: wet状態だけ同期し、年齢はグローしない程度に大きく保つ
+      for (let i = 0; i < n; i++) {
+        this._wet[i] = rgba[i * 4] > FRONT_WET_M ? 1 : 0;
+        if (this._wet[i] && this._frontAge[i] < 999) this._frontAge[i] = 999;
+      }
+      return;
+    }
     for (let i = 0; i < n; i++) {
       const wet = rgba[i * 4] > FRONT_WET_M ? 1 : 0;
       if (wet && !this._wet[i]) this._frontAge[i] = 0;
@@ -773,7 +785,10 @@ export class CesiumView {
     const k = (j * W + i) * 4;
     const h = d[k];
     out.h = h;
-    if (h > 1e-4) { out.vx = d[k + 1] / h; out.vy = d[k + 2] / h; }
+    // 浅水(h<10cm)では速度が爆発するので下限を設ける。物理的に
+    // 水深3cmの地表水が20m/sで流れることはない。
+    const hs = Math.max(h, 0.10);
+    if (h > 1e-4) { out.vx = d[k + 1] / hs; out.vy = d[k + 2] / hs; }
     else { out.vx = 0; out.vy = 0; }
   }
   /** 湿った流れのあるセルへ粒子を撒き直す。遠くでは重要度で絞る。 */
@@ -822,7 +837,7 @@ export class CesiumView {
   _seedStreaks() {
     const s = this._streaks;
     const area = this.container.clientWidth * this.container.clientHeight;
-    const n = Math.min(4000, Math.max(1200, Math.round(area / 900)));
+    const n = Math.min(1800, Math.max(700, Math.round(area / 1800)));
     s.parts = [];
     for (let i = 0; i < n; i++) {
       const p = { u: Math.random(), v: Math.random(), age: Math.random() * 2000, life: 0 };
@@ -836,6 +851,8 @@ export class CesiumView {
     const s = this._streaks;
     if (!this._flowOn || !s || !this._stateData || !this.bbox || !this.viewer) return;
     if (!s.parts.length) this._seedStreaks();   // _stateData到着後に遅延シード
+    const now = performance.now();
+    if (s.lastDraw && now - s.lastDraw < 33) return;  // ~30fps に絞る
     const Cesium = window.Cesium;
     const cv = s.cv;
     const w = this.container.clientWidth, hgt = this.container.clientHeight;
@@ -851,18 +868,15 @@ export class CesiumView {
     ctx.globalCompositeOperation = "destination-out";
     ctx.fillStyle = `rgba(0,0,0,${(0.10 + 0.20 * (1 - lod)).toFixed(2)})`;
     ctx.fillRect(0, 0, w, hgt);
-    if (this._camMoving) { ctx.globalCompositeOperation = "source-over"; return; }
+    if (this._camMoving) { ctx.globalCompositeOperation = "source-over"; s.lastDraw = now; return; }
 
-    const now = performance.now();
     const dt = Math.min(80, now - (s.lastT || now)) / 1000;
-    s.lastT = now;
+    s.lastT = now; s.lastDraw = now;
     s.minScore = 0.004 / lod;      // |q| (m²/s) の下限: 遠いほど大きい流れのみ
-    s.gain = 420 / Math.max(0.5, Math.min(3, camH / 5000));   // 近い→緩やか
     const active = Math.max(1, Math.floor(s.parts.length * lod));
     // 遠景 (高い) では粒子数を絞り、代表的な流れだけ残す。
     const [west, south, east, north] = this.bbox;
     const lonSpan = east - west, latSpan = north - south;
-    // 1度あたりの概算メートル (緯度35°)
     const mLon = lonSpan * 91000, mLat = latSpan * 111000;
     const smp = s.smp;
     const C3 = Cesium.Cartesian3;
@@ -880,7 +894,6 @@ export class CesiumView {
         this._streakSample(p.u, p.v, smp);
         sp = Math.hypot(smp.vx, smp.vy);
       }
-      // 画面速度 = 実速度を見た目に変換 (遅い水はじわっと、急流は速く)
       const pxS = Math.min(28, (16 + 300 * Math.min(1, sp / 3.0)) * dt);   // px/frame
       if (pxS < 0.15) continue;
       const lon = west + p.u * lonSpan, lat = south + p.v * latSpan;
@@ -889,25 +902,43 @@ export class CesiumView {
       const scr = Cesium.SceneTransforms.worldToWindowCoordinates(this.viewer.scene, wgs);
       if (!scr || scr.x < -40 || scr.x > w + 40 || scr.y < -40 || scr.y > hgt + 40) {
         this._streakRespawn(p, s.minScore);
+        p.pxPerM = null;
         continue;
       }
-      // 流れ方向に2m先をプローブ投影し、画面上の向きを得る
-      const inv = 2 / Math.max(sp, 1e-6);                    // 2m先までの係数
-      const lon2 = lon + smp.vx * inv / 91000;
-      const lat2 = lat + smp.vy * inv / 111000;
-      C3.fromDegrees(lon2, lat2, z, Cesium.Ellipsoid.WGS84, wgs);
-      const scr2 = Cesium.SceneTransforms.worldToWindowCoordinates(this.viewer.scene, wgs);
-      let dx, dy;
-      if (scr2) {
-        dx = scr2.x - scr.x; dy = scr2.y - scr.y;
-        const n = Math.hypot(dx, dy);
-        if (n < 0.01) { dx = pxS; dy = 0; }
-        else { dx = dx / n * pxS; dy = dy / n * pxS; }
-      } else { dx = pxS; dy = 0; }
-      // 粒子のワールド位置を流れ方向に pxS 分だけ進める
-      // (px→uv の逆算は近似: 画面上の pxS に対応する uv 変位を求める)
-      const pxPerM = Math.abs(scr2 ? Math.hypot(scr2.x - scr.x, scr2.y - scr.y) / 2 : 0) || 1e-6;
-      const stepM = Math.min(200, pxS / Math.max(pxPerM, 1e-6));  // 世界移動は200m/frameで上限
+      // 流れ方向の画面向きは前フレームの2点差分を再利用し、初回のみ2点投影。
+      // (世界→画面の正射影を近似して pxPerM を推定する)
+      if (p.pxPerM == null || p.dirX === undefined) {
+        const inv = 2 / Math.max(sp, 1e-6);
+        const lon2 = lon + smp.vx * inv / 91000;
+        const lat2 = lat + smp.vy * inv / 111000;
+        C3.fromDegrees(lon2, lat2, z, Cesium.Ellipsoid.WGS84, wgs);
+        const scr2 = Cesium.SceneTransforms.worldToWindowCoordinates(this.viewer.scene, wgs);
+        if (scr2) {
+          const ddx = scr2.x - scr.x, ddy = scr2.y - scr.y;
+          const n2 = Math.hypot(ddx, ddy);
+          if (n2 > 0.01) { p.dirX = ddx / n2; p.dirY = ddy / n2; p.pxPerM = n2 / 2; }
+          else { p.dirX = 1; p.dirY = 0; p.pxPerM = 1; }
+        } else { p.dirX = 1; p.dirY = 0; p.pxPerM = 1; }
+      } else {
+        // 流れ方向の回転を追跡: 新しい速度ベクトルへ方向を更新するため、
+        // 1フレームおきに2点目を再投影する (近似で回転を許す)
+        p.dirTick = (p.dirTick || 0) + 1;
+        if (p.dirTick % 4 === 0) {
+          const inv = 2 / Math.max(sp, 1e-6);
+          const lon2 = lon + smp.vx * inv / 91000;
+          const lat2 = lat + smp.vy * inv / 111000;
+          C3.fromDegrees(lon2, lat2, z, Cesium.Ellipsoid.WGS84, wgs);
+          const scr2 = Cesium.SceneTransforms.worldToWindowCoordinates(this.viewer.scene, wgs);
+          if (scr2) {
+            const ddx = scr2.x - scr.x, ddy = scr2.y - scr.y;
+            const n2 = Math.hypot(ddx, ddy);
+            if (n2 > 0.01) { p.dirX = ddx / n2; p.dirY = ddy / n2; p.pxPerM = n2 / 2; }
+          }
+        }
+      }
+      const dx = p.dirX * pxS, dy = p.dirY * pxS;
+      const pxPerM = Math.max(1e-6, p.pxPerM || 1e-6);
+      const stepM = Math.min(200, pxS / pxPerM);
       p.u += (smp.vx / Math.max(sp, 1e-6)) * stepM / Math.max(mLon, 1);
       p.v += (smp.vy / Math.max(sp, 1e-6)) * stepM / Math.max(mLat, 1);
       const t = Math.min(1, Math.pow(Math.min(sp / 2.5, 1), 0.6));

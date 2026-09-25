@@ -2,7 +2,7 @@
 import { bindBenchHandle, PerfHud, runBench } from "./perf.js?v=26";
 import { FloodSim, MODE_DEPTH, MODE_MAXDEPTH, MODE_SPEED, MODE_TERRAIN } from "./sim.js?v=28";
 import { ThreeView } from "./view3d.js?v=24";
-import { CesiumView } from "./view3d_cesium.js?v=38";
+import { CesiumView } from "./view3d_cesium.js?v=39";
 import { DeckView } from "./view3d_deck.js?v=29";
 import { extractChannels } from "./river.js?v=2";
 
@@ -897,9 +897,10 @@ const playback = {
   bind(idx) {
     const arr = this.cache.get(idx);
     if (!arr) return;
+    const snap = Math.abs(idx - this.cur) > 1;   // シーク = 非連続フレーム
     this.cur = idx;
     sim.setStateFrame(arr);
-    if (view3d && view3dOn) view3d.updateWater(arr);
+    if (view3d && view3dOn) view3d.updateWater(arr, snap);
   },
 
   /** Move the replay to model time t (frame-snapped, textures lazy-loaded). */
@@ -1926,11 +1927,11 @@ function seekTo(t) {
     else sim.reset();
     tl.lastSample = -10;
   }
-  const cells = sim.W * sim.H;
-  const chunk = Math.max(120, Math.round(1200 * Math.min(1, 2.5e6 / cells)));
+  // 固定ステップ数だと大きいグリッドで1フレームが重い。時間バジェット (28ms) で回す。
   const stepSeek = () => {
     if (token !== seekToken) return;   // 新しいドラッグ/シークに中断された
-    for (let i = 0; i < chunk && sim.time + 0.02 < t; i++) sim.step(0.05);
+    const t0 = performance.now();
+    while (sim.time + 0.02 < t && performance.now() - t0 < 28) sim.step(0.05);
     rainFrames.update();
     sim.computeStats();
     if (sim.time >= tl.lastSample + tl.sampleDt) tl.pushSample();
