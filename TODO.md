@@ -141,3 +141,13 @@
 - リプレイ開始時に自動読み込み。「衛星検証 (SWOT/NISAR)」トグルで
   2D表示に重畳: 青=衛星のみ検出、黄=モデルと一致。
 - `satInfo` 行に F1/TP/FP/FN を表示。
+
+## deck.gl 水流表示 (weatherlayers-gl 統合) — Cesium完了後に着手
+
+- Cesium 版は画面空間ストリーク (2026-09-25 実装済) で対応済み。
+- deck.gl 版 (`?3d=deck`) には weatherlayers-gl の ParticleLayer を統合する:
+  - https://weatherlayers.github.io/ — nullschool方式のGPUパーティクル
+  - 流速場はシム状態の (qx, qy) をテクスチャ化して渡す
+    (`imageUnscale` で [min,max] マッピング)。
+  - ESM CDN (esm.sh) で deck.gl と同バージョンに揃えて試す。
+  - 水流トグル (`flowToggle`) と連動させる。
