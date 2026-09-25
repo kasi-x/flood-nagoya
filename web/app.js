@@ -103,6 +103,14 @@ perfHud.setView({ getFrameCount: () => 0, name: "2D", getPerf: () => ({}) });
 bindBenchHandle(() => view3d);
 
 // ---------- timeline (seek + history graphs) ----------
+
+/** Timeline end in seconds: last frame time in replay, else sim endTime. */
+function tlEnd() {
+  if (playback.on && playback.meta?.times?.length) {
+    return playback.meta.times[playback.meta.times.length - 1];
+  }
+  return sim.endTime();
+}
 const tl = {
   cps: [],          // [{t, buf}] checkpoints (compact Uint16), newest last
   nextCp: 0, interval: 0, maxCp: 1,
@@ -116,7 +124,7 @@ const tl = {
     this.hist = { t: [], rain: [], area: [], vol: [] };
     this.lastSample = -10;
     this.target = sim.time;
-    const end = Math.max(sim.endTime(), 1);
+    const end = Math.max(tlEnd(), 1);
     const bytesPer = sim.W * sim.H * 16;
     this.maxCp = clamp(Math.floor(192e6 / bytesPer), 1, 24);
     this.interval = end / this.maxCp;
@@ -1700,7 +1708,7 @@ function drawBar() {
   const slider = $("tlSlider"), rain = $("tlRain");
   if (!slider || !rain || !sim || !sim.W) return;
   const dpr = Math.min(devicePixelRatio || 1, 2);
-  const end = Math.max(sim.endTime(), 1);
+  const end = Math.max(tlEnd(), 1);
 
   // slider: damage-coloured fill behind the knob
   const sw = slider.clientWidth, sh = slider.clientHeight;
@@ -1783,7 +1791,7 @@ function tlRainPopup(clientX) {
   const barEl = $("tlRainBar"), tip = $("tlRainHover");
   const r = barEl.getBoundingClientRect();
   const f = clamp((clientX - r.left) / Math.max(r.width, 1), 0, 1);
-  const end = Math.max(sim.endTime(), 1);
+  const end = Math.max(tlEnd(), 1);
   const t = f * end;
   const span = 1800;   // +/-30 min window
   const t0 = Math.max(0, t - span), t1 = Math.min(end, t + span);
@@ -1839,7 +1847,7 @@ function tlRainPopup(clientX) {
 
 function wireBar() {
   const track = $("tlTrack");
-  const posToTime = (clientX) => bar.frac(clientX) * Math.max(sim.endTime(), 1);
+  const posToTime = (clientX) => bar.frac(clientX) * Math.max(tlEnd(), 1);
   track.addEventListener("pointerdown", (e) => {
     if (tl.seeking) { seekToken++; tl.seeking = false; }   // 進行中のシークを中断して引き取る
     tl.drag = true;
@@ -1885,7 +1893,7 @@ function seekTo(t) {
     drawBar();
     return;
   }
-  const end = Math.max(sim.endTime(), 1);
+  const end = Math.max(tlEnd(), 1);
   t = clamp(t, 0, end);
   if (Math.abs(t - sim.time) < 0.02) return;
   const wasPaused = sim.paused;
@@ -2104,6 +2112,8 @@ function loop() {
     updateLabels();
     return;
   }
+  const ro = $("regionOutline");
+  if (ro && !ro.hidden) ro.hidden = true;   // 赤枠は地図モード専用
   if (!sim.W || sim.mapMode) return;
   frameNo++;
   rainFrames.update();
