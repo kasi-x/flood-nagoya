@@ -783,6 +783,14 @@ export class DeckView {
     this.deck.setProps({ initialViewState: { ...vs, zoom: vs.zoom + Math.log2(f) } });
   }
 
+  /** カメラをリージョン全体が見渡せる既定視点に戻す。 */
+  resetView() {
+    const [lonC, latC] = this.centerLonLat();
+    this.deck?.setProps({
+      initialViewState: { longitude: lonC, latitude: latC, zoom: 13.2, pitch: 52, bearing: -15 },
+    });
+  }
+
   /** ベンチモード用: カメラを直接指定 / 取得 */
   setCamera(viewState) {
     this.deck?.setProps({ initialViewState: viewState });

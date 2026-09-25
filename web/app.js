@@ -1,8 +1,8 @@
 // 名古屋市 雨水流出エミュレーター — map view, region selection, UI wiring.
 import { bindBenchHandle, PerfHud, runBench } from "./perf.js?v=26";
 import { FloodSim, MODE_DEPTH, MODE_MAXDEPTH, MODE_SPEED, MODE_TERRAIN } from "./sim.js?v=28";
-import { ThreeView } from "./view3d.js?v=23";
-import { CesiumView } from "./view3d_cesium.js?v=37";
+import { ThreeView } from "./view3d.js?v=24";
+import { CesiumView } from "./view3d_cesium.js?v=38";
 import { DeckView } from "./view3d_deck.js?v=29";
 import { extractChannels } from "./river.js?v=2";
 
@@ -1459,6 +1459,10 @@ function wireUI() {
   $("btn3d").onclick = () => set3d(!view3dOn);
   $("zoomIn").onclick = () => zoomView(1.35);
   $("zoomOut").onclick = () => zoomView(1 / 1.35);
+  // 3Dでは #north を視点リセットに使う (Cesium/deck)
+  $("north").onclick = () => {
+    if (view3dOn && view3d?.resetView) { view3d.resetView(); return; }
+  };
   $("shotBtn").onclick = () => {
     // 描画バッファは表示後にクリアされるため、取得直前に再描画する
     let cv;
@@ -1527,7 +1531,10 @@ function set3d(on) {
     applyRegionTo3d();
     $("gl").style.visibility = "hidden";
     $("view3dOpts").hidden = false;
-    $("north").hidden = true;
+    // 3Dでは #north をコンパスではなく視点リセットボタンとして使う
+    $("north").hidden = view3dKind !== "cesium" && view3dKind !== "deck";
+    $("north").title = "視点をリセット";
+    $("north").style.cursor = "pointer";
     for (const loc of LOCATIONS) loc.el.style.display = "none";
     view3d.resize();
     perfHud.setView(view3d);

@@ -732,6 +732,15 @@ export class ThreeView {
     this.controls.update();
   }
 
+  /** Orbitカメラをリージョン全体が見渡せる既定視点に戻す。 */
+  resetView() {
+    if (!this.controls || !this.W) return;
+    const t = this.controls.target;
+    const d = Math.max(this.W, this.H) * this.dx * 1.35;
+    this.camera.position.set(t.x - d * 0.3, t.y - d * 0.9, t.z + d * 0.65);
+    this.controls.update();
+  }
+
   /** Attach (or replace) an aerial-photo canvas draped on the terrain. */
   setPhotoCanvas(canvas) {
     if (this.photoTex) { this.photoTex.dispose(); this.photoTex = null; }

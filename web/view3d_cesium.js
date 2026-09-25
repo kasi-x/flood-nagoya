@@ -321,41 +321,67 @@ export class CesiumView {
   }
 
   async _init() {
-    await loadScript(CESIUM_URL, "cesium-script");
-    await loadCss(CESIUM_CSS, "cesium-widgets-css");
-    const Cesium = window.Cesium;
-    if (!Cesium) throw new Error("CesiumJS を初期化できませんでした");
-    const token = ionToken();
-    if (token) Cesium.Ion.defaultAccessToken = token;
-    const viewer = new Cesium.Viewer(this.container, {
-      // 既定のBing/Ionに頼らない: 航空写真は国土地理院、地形はPLATEAU-Terrain
-      baseLayer: new Cesium.ImageryLayer(new Cesium.UrlTemplateImageryProvider({
-        url: GSI_ORT_URL,
-        credit: new Cesium.Credit("国土地理院 航空写真(ort)"),
-        maximumLevel: 17,
-      })),
-      terrainProvider: await this._makeTerrainProvider(),
-      baseLayerPicker: false, geocoder: false, homeButton: false,
-      sceneModePicker: false, navigationHelpButton: false, animation: false,
-      timeline: false, fullscreenButton: false, infoBox: false,
-      selectionIndicator: false,
-      contextOptions: { webgl: { preserveDrawingBuffer: true } },
-      // 3D専用: 2D/Columbus用の boundingSphereCV 計算を省き、
-      // FLOAT位置のカスタムPrimitiveが projectTo2D で落ちるのを防ぐ
-      scene3DOnly: true,
-    });
-    this.viewer = viewer;
-    this.canvas = viewer.canvas;   // スクリーンショット用 (app.js互換)
-    viewer.scene.globe.depthTestAgainstTerrain = true;   // 記事の設定
-    viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#9cc0e0");
-    viewer.scene.postRender.addEventListener(() => {
-      this._frameCount++;
-      this._stepStreaks();
-      const u = this._waterAppearance?.material?.uniforms;
-      if (u) u.uTime = performance.now() / 1000;
-    });
-    if (this._pendingRegion) this.setRegion(...this._pendingRegion);
-    return this;
+    this._loading = document.createElement("div");
+    this._loading.style.cssText =
+      "position:absolute;inset:0;display:flex;align-items:center;justify-content:center;" +
+      "flex-direction:column;gap:10px;background:rgba(8,14,24,.92);color:#cfe3f7;" +
+      "font:13px/1.6 system-ui,sans-serif;z-index:10;letter-spacing:.02em;";
+    this._loading.innerHTML =
+      '<div style="font-size:15px;font-weight:600">3Dビュワーを起動しています</div>' +
+      '<div id="cesiumLoadMsg" style="color:#8fb4d9">CesiumJS を読み込み中…</div>';
+    this.container.appendChild(this._loading);
+    const setMsg = (t) => {
+      const el = this._loading?.querySelector("#cesiumLoadMsg");
+      if (el) el.textContent = t;
+    };
+    const done = () => { this._loading?.remove(); this._loading = null; };
+    try {
+      await loadScript(CESIUM_URL, "cesium-script");
+      await loadCss(CESIUM_CSS, "cesium-widgets-css");
+      setMsg("地形データを取得中…");
+      const Cesium = window.Cesium;
+      if (!Cesium) throw new Error("CesiumJS を初期化できませんでした");
+      const token = ionToken();
+      if (token) Cesium.Ion.defaultAccessToken = token;
+      const viewer = new Cesium.Viewer(this.container, {
+        // 既定のBing/Ionに頼らない: 航空写真は国土地理院、地形はPLATEAU-Terrain
+        baseLayer: new Cesium.ImageryLayer(new Cesium.UrlTemplateImageryProvider({
+          url: GSI_ORT_URL,
+          credit: new Cesium.Credit("国土地理院 航空写真(ort)"),
+          maximumLevel: 17,
+        })),
+        terrainProvider: await this._makeTerrainProvider(),
+        baseLayerPicker: false, geocoder: false, homeButton: false,
+        sceneModePicker: false, navigationHelpButton: false, animation: false,
+        timeline: false, fullscreenButton: false, infoBox: false,
+        selectionIndicator: false,
+        contextOptions: { webgl: { preserveDrawingBuffer: true } },
+        // 3D専用: 2D/Columbus用の boundingSphereCV 計算を省き、
+        // FLOAT位置のカスタムPrimitiveが projectTo2D で落ちるのを防ぐ
+        scene3DOnly: true,
+      });
+      this.viewer = viewer;
+      this.canvas = viewer.canvas;   // スクリーンショット用 (app.js互換)
+      viewer.scene.globe.depthTestAgainstTerrain = true;   // 記事の設定
+      viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#9cc0e0");
+      viewer.scene.postRender.addEventListener(() => {
+        this._frameCount++;
+        this._stepStreaks();
+        const u = this._waterAppearance?.material?.uniforms;
+        if (u) u.uTime = performance.now() / 1000;
+      });
+      setMsg("建物タイルを読み込み中…");
+      if (this._pendingRegion) this.setRegion(...this._pendingRegion);
+      // 最初のフレームが描画されたらローディングを外す
+      const off = viewer.scene.postRender.addEventListener(() => {
+        if (this._frameCount > 2) { off(); done(); }
+      });
+      setTimeout(done, 20000);   // 安全側: 20s で強制解除
+      return this;
+    } catch (e) {
+      setMsg("3Dビュワーの起動に失敗: " + (e?.message || e));
+      throw e;
+    }
   }
 
   /** 地形provider選択: 公開PLATEAU-Terrain優先、失敗時のみ自前GSI DEM。 */
@@ -1028,6 +1054,22 @@ export class CesiumView {
     if (!this.viewer) return;
     const h = this.viewer.camera.positionCartographic.height;
     this.viewer.camera.zoomIn((1 - f) * h * 0.8);
+  }
+
+  /** カメラをリージョン全体が見渡せる既定視点に戻す。 */
+  resetView() {
+    if (!this.viewer || !this.bbox) return;
+    const Cesium = window.Cesium;
+    const [west, south, east, north] = this.bbox;
+    const lonC = (west + east) / 2, latC = (south + north) / 2;
+    const spanKm = Math.hypot((east - west) * 91, (north - south) * 111);
+    const target = Cesium.Cartesian3.fromDegrees(lonC, latC, 0);
+    this.viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(target, 0), {
+      offset: new Cesium.HeadingPitchRange(
+        Cesium.Math.toRadians(-20), Cesium.Math.toRadians(-38),
+        Math.min(Math.max(spanKm * 820, 1600), 60000)),
+      duration: 0.8,
+    });
   }
 
   setCamera({ lonC, latC, height, heading, pitch }) {
