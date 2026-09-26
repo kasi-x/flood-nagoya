@@ -16,6 +16,8 @@ eggs/
 .eggs/
 lib/
 lib64/
+# web/lib holds vendored three.js / deck.gl needed by the app — keep it tracked
+!web/lib/
 parts/
 sdist/
 var/

@@ -40,6 +40,15 @@ Keep 100% coverage where it exists; do not lower it.
 Data, notebooks, and reports (`data/`, `notebooks/`, `models/`,
 `reports/`) are analysis artifacts — keep generated outputs out of git.
 
+Exceptions to keep tracked (they are app source, not generated output):
+`web/lib/` (vendored three.js / deck.gl, needed offline). The generic
+`lib/` ignore rule is negated for it in `.gitignore` — do not remove that.
+
+Large data is fetched online, never committed: `scripts/fetch-data.sh`
+(or `just setup`) downloads the GSI DEM and PLATEAU CityGML and regenerates
+the web assets. Precomputed replays (`web/precomputed/`) have no online
+source; regenerate locally with `python -m flood_nagoya precompute`.
+
 ## Commits and CI
 
 - Use [Conventional Commits](https://www.conventionalcommits.org/)
