@@ -1,8 +1,8 @@
 // 名古屋市 雨水流出エミュレーター — map view, region selection, UI wiring.
 import { bindBenchHandle, PerfHud, runBench } from "./perf.js?v=26";
-import { FloodSim, MODE_DEPTH, MODE_MAXDEPTH, MODE_SPEED, MODE_TERRAIN } from "./sim.js?v=28";
+import { FloodSim, MODE_DEPTH, MODE_MAXDEPTH, MODE_SPEED, MODE_TERRAIN } from "./sim.js?v=29";
 import { ThreeView } from "./view3d.js?v=24";
-import { CesiumView } from "./view3d_cesium.js?v=39";
+import { CesiumView } from "./view3d_cesium.js?v=40";
 import { DeckView } from "./view3d_deck.js?v=29";
 import { extractChannels } from "./river.js?v=2";
 
@@ -449,7 +449,8 @@ function startDefaultScene() {
       if (location.search.includes("noff")) { sim.paused = true; return; }  // 検証用
       const refresh = () => {
         if (view3d) {
-          view3d.updateWater(sim.readState());
+          view3d.updateWater(view3d.packedWater && sim.readStatePacked
+            ? sim.readStatePacked() : sim.readState());
           view3d.ensureFrame?.();
         }
       };
@@ -2137,7 +2138,11 @@ function loop() {
   frameNo++;
   rainFrames.update();
   if (view3dOn && view3d && !playback.on && frameNo % 8 === 0) {
-    view3d.updateWater(sim.readState());
+    // ANGLE ではフル解像度の Float32 readPixels が数百ms〜秒級に止まる。
+    // packedWater を宣言するビュワー (Cesium) には 1/4 解像度 RGBA8 の
+    // GPUダウンサンプル結果を渡し、それ以外は従来どおり readState()。
+    view3d.updateWater(view3d.packedWater && sim.readStatePacked
+      ? sim.readStatePacked() : sim.readState());
     // deck.glの雨パーティクルに現在の雨強度を伝える
     if (view3dKind === "deck") {
       const rate = sim.rainSeries

@@ -317,6 +317,33 @@ void main(){
   o = vec4(sumH / c, sumQx / c, sumQy / c, 1.0);
 }`;
 
+// 3D水面表示用の低解像度状態パッキング。RGBA32F のフル解像度
+// readPixels (depth+flow で 40MB超) は ANGLE 経由で数百ms〜秒級に
+// なるため、GPU側で 1/4 解像度の RGBA8 に畳み込んでから読み戻す。
+// 出力: R=水深cm上位, G=水深cm下位, B=qx方向, A=qy方向 (±8 m²/sスケール)。
+const PACK_FRAG = `#version 300 es
+precision highp float;
+precision highp sampler2D;
+uniform sampler2D uState;
+uniform ivec2 uGrid;
+out vec4 o;
+void main(){
+  ivec2 base = ivec2(gl_FragCoord.xy) * 4;
+  float sumH = 0.0; float sumQx = 0.0; float sumQy = 0.0; float c = 0.0;
+  for(int dy = 0; dy < 4; dy++){
+    for(int dx = 0; dx < 4; dx++){
+      ivec2 p = base + ivec2(dx, dy);
+      if(any(greaterThanEqual(p, uGrid))) continue;
+      vec4 s = texelFetch(uState, p, 0);
+      sumH += s.x; sumQx += s.y; sumQy += s.z; c += 1.0;
+    }
+  }
+  vec3 a = vec3(sumH, sumQx, sumQy) / c;
+  float cm = clamp(a.x * 100.0, 0.0, 65535.0);
+  vec2 qi = clamp(a.yz, -8.0, 8.0) * 0.5 + 0.5;
+  o = vec4(floor(cm / 256.0) / 255.0, mod(cm, 256.0) / 255.0, qi.x, qi.y);
+}`;
+
 function compile(gl, type, src) {
   const sh = gl.createShader(type);
   gl.shaderSource(sh, src);
@@ -371,6 +398,7 @@ export class FloodSim {
     this.simPrg = program(gl, SIM_FRAG);
     this.renderPrg = program(gl, RENDER_FRAG);
     this.reducePrg = program(gl, REDUCE_FRAG);
+    this.packPrg = program(gl, PACK_FRAG);
     this.flowPrg = program(gl, FLOW_FRAG);
     this.vao = gl.createVertexArray();
     this.view = { x: 0, y: 0, z: 1 };   // grid px: center + scale (screen px per cell)
@@ -429,6 +457,13 @@ export class FloodSim {
     this.flowFbo = gl.createFramebuffer();
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.flowFbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.flowTex, 0);
+    // packed water target (1/4 grid, RGBA8): GPU-side downsample for fast readback
+    this.pw = Math.max(1, Math.ceil(width / 4));
+    this.ph = Math.max(1, Math.ceil(height / 4));
+    this.packTex = makeTex(gl, this.pw, this.ph, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    this.packFbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.packFbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.packTex, 0);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.flip = 0;
     this.time = 0;
@@ -754,6 +789,29 @@ export class FloodSim {
     return buf;
   }
 
+  /**
+   * Packed-state readback for the 3D view: 1/4 res RGBA8
+   * (R=depth cm hi, G=depth cm lo, B=qx, A=qy, ±8 m²/s scale).
+   * ~1/43 the bytes of readState() and UNSIGNED_BYTE is the ANGLE fast path.
+   * Returns { data: Uint8Array, w, h } (row 0 = south).
+   */
+  readStatePacked() {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.packFbo);
+    gl.viewport(0, 0, this.pw, this.ph);
+    gl.useProgram(this.packPrg.p);
+    const u = this.packPrg.u;
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.state[this.flip]);
+    gl.uniform1i(u.uState, 0);
+    gl.uniform2i(u.uGrid, this.W, this.H);
+    gl.bindVertexArray(this.vao);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    const buf = new Uint8Array(this.pw * this.ph * 4);
+    gl.readPixels(0, 0, this.pw, this.ph, gl.RGBA, gl.UNSIGNED_BYTE, buf);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return { data: buf, w: this.pw, h: this.ph };
+  }
+
   /** Aggregate statistics; returns {volume, a5, a30, a100} (m3 / m2). */
   computeStats() {
     const gl = this.gl;
@@ -790,15 +848,17 @@ export class FloodSim {
 
   dispose() {
     const gl = this.gl;
-    for (const k of ["terrainTex", "bldgTex", "streamsTex", "satTex", "reduceTex", "flowTex"]) {
+    for (const k of ["terrainTex", "bldgTex", "streamsTex", "satTex", "reduceTex", "flowTex", "packTex"]) {
       if (this[k]) { gl.deleteTexture(this[k]); this[k] = null; }
     }
     if (this.state) for (const t of this.state) gl.deleteTexture(t);
     if (this.fbo) for (const f of this.fbo) gl.deleteFramebuffer(f);
     if (this.reduceFbo) gl.deleteFramebuffer(this.reduceFbo);
     if (this.flowFbo) gl.deleteFramebuffer(this.flowFbo);
+    if (this.packFbo) gl.deleteFramebuffer(this.packFbo);
     this.state = null;
     this.fbo = null;
+    this.packFbo = null;
     this.reduceFbo = null;
     this.flowFbo = null;
   }

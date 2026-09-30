@@ -61,58 +61,56 @@
 ?3d=deck&bldg=simple
 ```
 
-## CesiumJS ビュワーの未解決問題 (2026-09-25 引き継ぎ)
+## CesiumJS ビュワーの未解決問題 (2026-09-25 引き継ぎ → 10-01 実施)
 
-**ユーザー報告: 現状の修正では何も解決していない。再調査・再実装が必要。**
+### 解決 (2026-10-01)
+- **~1fps の主犯は `sim.readState()`**: フル解像度 RGBA32F の readPixels
+  (ライブ40MB、リプレイグリッドで10MB) が ANGLE 上で1呼出数百ms〜秒級に
+  stall し、8フレーム毎の `view3d.updateWater(sim.readState())` が
+  メインスレッドを塞いでいた。CPUプロファイルで readPixels が
+  全サンプルの ~85% を占有。`_waterLayer`/`_ensureWaterMesh` の失敗ではない。
+- **対応**: `sim.readStatePacked()` を追加 — GPU側で 1/4 解像度 RGBA8
+  (R=depth cm hi, G=lo, B=qx, A=qy ±8m²/s) に畳み込んでから readPixels。
+  CesiumView は `packedWater=true` を宣言し app.js が packed を渡す。
+  リプレイの Float32Array は `_packState()` で同じパッキングに変換。
+  readPixels ヒットは 8684→25/10s に減少。
+- **建物への水面の滲み**: フラグメントシェーダに `uBldg` マスクを追加。
+  建物高さラスタ (RG=cm) を読み、`bh > v_depth` の画素は discard。
+  メッシュ解像度 (~10-20m) が建物稜線をまたいでも屋根に水が出ない。
+  `bldgData` がある場合のみ有効 (ない場合は全域0の1x1テクスチャ)。
+- **シーク時フラッシュ**: 従来の snap 伝播を生かしつつ、
+  `updateWater` の250msスロットルがシーク最終位置を捨てる bug を修正
+  (`snap=true` はスロットルを迂回)。`_frontAge` 更新はパック済み
+  u8 を直接読む。手動シークで young セル数 0 を確認。
+- **16区全タイルセット読み込み**: `pickBldgTilesets` は区代表点±0.08°で
+  全16区を拾っていた。`tileset.json` の root.boundingVolume と bbox の
+  実交差で絞り込む `_filterPicksByBounds()` を追加 → 7-9区に。
+- **テクスチャ割当チャーン**: `_uploadWaterTextures` が毎回 3枚の
+  Cesium.Texture を新規作成していた (旧破棄なし)。`_setTex()` で同寸時
+  `copyFrom({source:{...}})` 再利用、寸法変更時のみ作り直し+destroy。
+- **起動時 crash**: `_initStreaks` が viewer 生成前に camera.* に触れて
+  TypeError → startPlayback の catch に転がりリプレイが開始しなかった。
+  viewer null ガードを追加。
+- **`?rscale=<0-1>`**: preserveDrawingBuffer=true の present/composite が
+  弱いGPUで支配的。明示上書き + ソフトウェアGL検出時のみ自動 0.7。
+  この環境 (ANGLE Intel UHD 620) で 1.0→0.5 で ~9→~15fps。
 
-### 症状
-1. **極端に重い**: ヘッドレス/SwiftShader 環境で常時 ~1fps。
-   sim 一時停止・ストリークOFFでも 1.0fps のまま → 水面メッシュ
-   (Primitive+Appearance) か建物タイル描画が主犯の可能性。deck.gl 版の
-   lite プリセット (20fps) より大幅に遅い。
-2. **水面が建物上に滲む**: 深度テクスチャを頂点変位に使うため、メッシュ
-   解像度 (セル 5m 級に対し頂点間隔 ~10m) と LINEAR 補間で建物稜線をまたいで
-   水位がリフトする。
-3. **シーク時に全面が琥珀色にフラッシュ**: `_updateFront` の wet-since 年齢が
-   フレームジャンプで全セル 0 にリセットされ、シェーダの「新規冠水」グローが
-   全水面に発火する。
+### 検証結果 (2026-10-01、headless ANGLE iGPU 環境)
+- FPS: ベースライン ~0.5-1.4 → 9.7 (リプレイ再生中)
+- scene.render() 中央値 ~2.2ms。残る遅さは RAF/present が ~150ms で
+  ヘッドレス+iGPU 環境の上限に近い。実GPU環境ではさらに速いはず。
+- ビルド: 16区→7区 (名古屋大学周辺リージョン)
+- `just check` 全緑 (lint/type-check/test 163件)
 
-### 直近の対応 (commit 48bd079 — 効果未確認、必要なら revert)
-- `uDepth` テクスチャを NEAREST サンプルに変更 (`makeDataTex` に filter 引数)
-- 水面メッシュ `WATER_MESH_NX` を 160→256 に増加 (頂点数 ~4倍: 逆に重い可能性)
-- `playback.bind` が `|idx-cur|>1` で `snap=true` を `updateWater` に伝播
-  (`web/app.js`)、`_updateFront(rgba, snap)` が wet セルの年齢を 999 にして
-  グローを抑制
-- ライブ `seekTo` を固定ステップ数→28ms 時間バジェット化
-- ストリーク粒子を 4000→1800 に削減、~30fps スロットル、画面方向を
-  `p.dirX/dirY/pxPerM` にキャッシュ (投影回数を削減)
-
-### 再開時の指針
-- **まず 1fps のボトルネックを計測**: `viewer.scene.debugShowFramesPerSecond`
-  や Chrome tracing。建物 3D Tiles の tile 数/MSSE、水面 Primitive の頂点数、
-  postRender フックの処理時間を個別に切り分ける。`_waterAppearance` の
-  material uniform 更新 (`uTime` 書き込みはフレーム毎) と
-  `_uploadWaterTextures` (250ms スロットル済) の頻度を確認。
-- **水面描画の抜本的な選択肢**:
-  a) 頂点変位メッシュをやめ、ImageryLayer/SingleTileImageryProvider の
-     ドレープに戻し深度だけ色で出す (軽いが建物に貫通される)
-  b) 水深を建物マスクで打ち抜く (PLATEAU footprint で `discard` し、
-     建物上に水面を出さない) — 建物ポリゴンのテクスチャ化が必要
-  c) three.js 版 (`?3d=three`) の水面実装を参考にする
-- **シーク時フラッシュ**: snap 伝播は入れたが未検証。`_updateFront` が
-  `sig` (RGBA サンプル和) で同一フレーム判定しているため、シーク先が
-  同じ sig だと年齢が進まない副作用もある。
-- **デバッグ環境**: `python -m http.server 8642` or `just serve` で
-  `?3d=cesium`。ウェルカムダイアログは
-  `localStorage["flood-nagoya-welcome-seen"]="1"` で抑止。リプレイは
-  `#replayList` の「MSM訂正」ボタン、シークは `#tlTrack` への
-  PointerEvent。`view3d` はモジュールスコープ (window 非公開)。
-- **罠**: `node --check web/app.js` は CJS としてパースして ESM の構文
-  エラーを見逃す。必ず `node --input-type=module --check < web/app.js`。
-- 対象ファイル: `web/view3d_cesium.js` (CesiumView 全体、シェーダは
-  `WATER_VERT`/`WATER_FRAG` 文字列)、`web/app.js` (`playback`,
-  `seekTo`, `updateWater` 呼出し)
-
+### 残る留意点
+- リプレイの `updateWater` は Float32Array→u8 の JS パックが入る。
+  シーカードラッグ中は250msスロットルを通るので重くないが、
+  今後リプレイもGPUパック化するとより滑らかになる。
+- `_updateWaterImagery` フォールバック (メッシュ構築失敗時) は
+  `_packToFloat` で Float32Array を復元して drawWaterCanvas に渡す。
+- 対象ファイル: `web/view3d_cesium.js` (CesiumView、シェーダは
+  `WATER_VERT`/`WATER_FRAG`)、`web/sim.js` (`PACK_FRAG`/`readStatePacked`)、
+  `web/app.js` (`packedWater` 分岐)
 
 ## 河川氾濫モデル (2026-09-24 実装)
 

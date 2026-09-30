@@ -199,13 +199,13 @@ in vec3 position3DHigh;
 in vec3 position3DLow;
 in vec2 st;
 in float batchId;
-uniform sampler2D uDepth_0; // depth m = (R*255*256 + G*255)/100
+uniform sampler2D uState_0; // depth m = (R*255*256 + G*255)/100, flow dir in zw
 uniform vec3 uUp_2;         // 地域中心のECEF上方向 (水深で持ち上げる)
 out vec2 v_st;
 out float v_depth;
 void main() {
   v_st = st;
-  vec4 t = texture(uDepth_0, st);
+  vec4 t = texture(uState_0, st);
   float d = (t.r * 255.0 * 256.0 + t.g * 255.0) / 100.0;
   v_depth = d;
   vec4 p = czm_computePosition();
@@ -214,7 +214,7 @@ void main() {
 }`;
 
 const WATER_FRAG = `
-// uFront/uFlow/uTime は material.shaderSource で宣言済み (前置される)
+// uFront/uBldg/uTime は material.shaderSource で宣言済み (前置される)
 in vec2 v_st;
 in float v_depth;
 vec3 depthRamp(float d) {
@@ -227,13 +227,18 @@ vec3 depthRamp(float d) {
 }
 void main() {
   if (v_depth < 0.01) discard;
+  // 建物フットプリントマスク: 建物高さが水深を上回る画素は水面を出さない。
+  // メッシュ解像度 (~10-20m) が建物稜線をまたいでもここで打ち抜く。
+  vec4 tB = texture(uBldg_3, v_st);
+  float bh = (tB.r * 255.0 * 256.0 + tB.g * 255.0) / 100.0;
+  if (bh > v_depth) discard;
   vec3 c = depthRamp(v_depth);
   // 新規冠水フロント: wet-since 年齢が浅いほど琥珀色に発光 (短時間で減衰)
   float age = texture(uFront_1, v_st).r * 255.0 * 4.0;
   float front = (age < 60.0) ? exp(-age / 18.0) : 0.0;
   c = mix(c, vec3(1.0, 0.72, 0.22), front * 0.45);
   // 流速方向に走る小さな輝度縞: 水が「流れて」見えるアニメーション。
-  vec2 fl = texture(uFlow_3, v_st).gb * 2.0 - 1.0;
+  vec2 fl = texture(uState_0, v_st).zw * 2.0 - 1.0;
   float sp = length(fl);
   vec2 dir = sp > 1e-3 ? fl / sp : vec2(1.0, 0.0);
   float k = mix(80.0, 220.0, min(sp, 1.0));
@@ -296,6 +301,16 @@ export class CesiumView {
     this._waterLayer = null;
     this._waterBlobUrl = null;
     this._waterCanvas = document.createElement("canvas");
+    // ライブシム状態を1/4解像度RGBA8で受け取る (readState の40MB float
+    // readPixels が ANGLE で秒級にstallするため、app.jsは
+    // sim.readStatePacked() を渡す)。リプレイは Float32Array のまま受け、
+    // ここで同じパッキングに変換する。
+    this.packedWater = true;
+    this._pack = null;        // {data: Uint8Array, w, h} パック済み最新状態
+    this._stateTex = null;    // uState (depth+flow)
+    this._bldgU8 = null;      // 建物高さラスタ (表示解像度 W×H、RG=cm)
+    this._bldgTex = null;     // uBldg
+    this._bldgEmptyTex = null;
     // WaterDepth マテリアルのテクスチャユニフォーム初期値 (未設定だと
     // Material生成で undefined.type を読んで例外になりメッシュが作れない)
     this._depthCanvas = Object.assign(document.createElement("canvas"), { width: 4, height: 4 });
@@ -364,6 +379,17 @@ export class CesiumView {
         // FLOAT位置のカスタムPrimitiveが projectTo2D で落ちるのを防ぐ
         scene3DOnly: true,
       });
+      // 低解像度レンダリング: preserveDrawingBuffer=true 前提で 1365x768 の
+      // present/composite が弱いiGPU・ソフトウェアGLで支配的になる。
+      // ?rscale=0.5 などで明示上書き。ソフトウェアGL検出時のみ自動で0.7。
+      const rs = parseFloat(new URLSearchParams(location.search).get("rscale") || "");
+      if (Number.isFinite(rs) && rs > 0) viewer.resolutionScale = Math.min(rs, 1);
+      else {
+        const gl = viewer.scene.context._gl;
+        const ext = gl?.getExtension?.("WEBGL_debug_renderer_info");
+        const rname = ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || "") : "";
+        if (/swiftshader|llvmpipe|software/i.test(rname)) viewer.resolutionScale = 0.7;
+      }
       this.viewer = viewer;
       this.canvas = viewer.canvas;   // スクリーンショット用 (app.js互換)
       viewer.scene.globe.depthTestAgainstTerrain = true;   // 記事の設定
@@ -428,7 +454,11 @@ export class CesiumView {
     this._wet = null;
     this._terrGrid = null;
     this._meshPromise = null;
+    this._pack = null;
     this._flowField = null;
+    // 建物高さラスタ (表示解像度 W×H、RG=cm) をフラグメントマスク用に保持
+    this._bldgU8 = bldgData && bldgData.length === W * H * 4 ? { data: bldgData, w: W, h: H } : null;
+    this._bldgTex = null;   // 次回 _uploadBldgTex で作り直す
     if (this._streaks) this._streaks.parts = [];   // リージョン変更で粒子を撒き直す
     if (this._waterPrim) {
       this.viewer.scene.primitives.remove(this._waterPrim);
@@ -462,7 +492,11 @@ export class CesiumView {
   /** bbox と重なる全区の PLATEAU 建物タイルセットを読む (区境またぎ対応)。 */
   async _loadBuildings() {
     const gen = ++this._bldgGen;   // リージョン変更ごとに増え、古いロードを無効化
-    const picks = await pickBldgTilesets(this.bbox, this._lod || "2");
+    let picks = await pickBldgTilesets(this.bbox, this._lod || "2");
+    if (gen !== this._bldgGen) return;              // 別リージョンに切り替わった
+    // pick は区の代表点ベース (全域16区になりうる) のため、
+    // tileset.json の boundingVolume と bbox の実交差で絞り込む。
+    picks = await this._filterPicksByBounds(picks);
     if (gen !== this._bldgGen) return;              // 別リージョンに切り替わった
     const key = picks.map((p) => p.url).join("|");
     if (this._bldgKey === key) return;
@@ -500,19 +534,74 @@ export class CesiumView {
     }
   }
 
+  /** tileset.json の root.boundingVolume を経緯度bboxへ近似変換する (取得失敗はnull)。 */
+  async _tilesetBBoxDeg(url) {
+    const Cesium = window.Cesium;
+    const bv = (await (await fetch(url)).json())?.root?.boundingVolume;
+    if (!bv) return null;
+    if (bv.region) {
+      const [w, s, e, n] = bv.region.map(Cesium.Math.toDegrees);
+      return [w, s, e, n];
+    }
+    if (bv.sphere || bv.box) {
+      // sphere/box は ECEF。半径は三軸の最大で近似 (保守側に広い)。
+      let c, rad;
+      if (bv.sphere) {
+        c = new Cesium.Cartesian3(bv.sphere[0], bv.sphere[1], bv.sphere[2]);
+        rad = bv.sphere[3];
+      } else {
+        c = new Cesium.Cartesian3(bv.box[0], bv.box[1], bv.box[2]);
+        // 半軸ベクトル (3-5, 6-8, 9-11) の合成半径を近似球半径に使う
+        rad = Math.hypot(
+          Math.hypot(bv.box[3], bv.box[4], bv.box[5]),
+          Math.hypot(bv.box[6], bv.box[7], bv.box[8]),
+          Math.hypot(bv.box[9], bv.box[10], bv.box[11]));
+      }
+      const g = Cesium.Cartographic.fromCartesian(c);
+      const dlat = rad / 111320;
+      const dlon = rad / (111320 * Math.cos(g.latitude));
+      return [Cesium.Math.toDegrees(g.longitude) - dlon,
+        Cesium.Math.toDegrees(g.latitude) - dlat,
+        Cesium.Math.toDegrees(g.longitude) + dlon,
+        Cesium.Math.toDegrees(g.latitude) + dlat];
+    }
+    return null;
+  }
+
+  /** boundingVolume と bbox が重なるピックだけ残す。取得失敗は残す (保守側)。 */
+  async _filterPicksByBounds(picks) {
+    const [west, south, east, north] = this.bbox;
+    const boxes = await Promise.all(picks.map((p) =>
+      this._tilesetBBoxDeg(p.url).catch(() => null)));
+    const kept = picks.filter((p, i) => {
+      const b = boxes[i];
+      return !b || (b[0] <= east && b[2] >= west && b[1] <= north && b[3] >= south);
+    });
+    if (kept.length) console.info("3D建物: " + kept.map((k) => k.ward).join("・")
+      + ` (${picks.length}区→${kept.length}区)`);
+    return kept.length ? kept : picks;   // 全滅なら誤判定より従来挙動に退避
+  }
+
   /**
    * シミュレーション状態 → 水面メッシュの水深テクスチャを更新。
    * メッシュ未準備の間だけフラットな画像レイヤにフォールバックする。
    */
-  updateWater(rgba, snap = false) {
+  updateWater(input, snap = false) {
     if (!this.viewer || !this.bbox) return;
+    // input: Float32Array(stateW×stateH×4) or packed {data,w,h} from
+    // sim.readStatePacked()。内部は常にパック済みRGBA8で保持する。
+    const pack = input && input.data instanceof Uint8Array ? input : this._packState(input);
+    if (!pack) return;
     const now = performance.now();
-    if (now - this._lastWaterAt < 250) return;
+    // シーク(snap)は最終位置の水面を必ず反映するためスロットルを迂回する
+    // (通常パスの間引きでシーク先が捨てられ水面が古いまま残るのを防ぐ)
+    if (!snap && now - this._lastWaterAt < 250) return;
     this._lastWaterAt = now;
-    this._stateData = rgba;
-    this._updateFront(rgba, snap);
+    this._pack = pack;
+    this._updateFront(pack, snap);
     if (this._waterAppearance) {
-      this._uploadWaterTextures(rgba);
+      this._uploadBldgTex();
+      this._uploadWaterTextures(pack);
       // メッシュが立ち上がったらフラットレイヤは外す
       if (this._waterLayer) {
         this.viewer.imageryLayers.remove(this._waterLayer, true);
@@ -521,12 +610,29 @@ export class CesiumView {
       return;
     }
     this._ensureWaterMesh();
-    this._updateWaterImagery(rgba);
+    this._updateWaterImagery();
+  }
+
+  /** Float32Array 状態 (リプレイ経路) をパック済みRGBA8へ変換する。 */
+  _packState(rgba) {
+    if (!rgba || !rgba.length) return null;
+    const w = this.stateW, h = this.stateH, n = w * h;
+    const out = new Uint8Array(n * 4);
+    for (let i = 0; i < n; i++) {
+      const cm = Math.min(65535, Math.max(0, Math.round(rgba[i * 4] * 100)));
+      out[i * 4] = cm >> 8;
+      out[i * 4 + 1] = cm & 0xff;
+      out[i * 4 + 2] = Math.max(0, Math.min(255, Math.round((rgba[i * 4 + 1] / 16 + 0.5) * 255)));
+      out[i * 4 + 3] = Math.max(0, Math.min(255, Math.round((rgba[i * 4 + 2] / 16 + 0.5) * 255)));
+    }
+    return { data: out, w, h };
   }
 
   /** フォールバック: 水深キャンバスを地形にドレープする画像レイヤ。 */
-  _updateWaterImagery(rgba) {
-    drawWaterCanvas(this._waterCanvas, rgba, this.stateW, this.stateH, 1024);
+  _updateWaterImagery() {
+    const p = this._pack;
+    if (!p) return;
+    drawWaterCanvas(this._waterCanvas, this._packToFloat(p), p.w, p.h, 1024);
     this._waterCanvas.toBlob(async (blob) => {
       if (!blob || !this.viewer) return;
       const Cesium = window.Cesium;
@@ -544,6 +650,18 @@ export class CesiumView {
         console.warn("水面レイヤーの更新に失敗: ", e);
       }
     }, "image/png");
+  }
+
+  /** パック済みRGBA8状態を Float32Array(h,qx,qy) に展開する (フォールバック描画用)。 */
+  _packToFloat(p) {
+    const out = new Float32Array(p.w * p.h * 4);
+    const d = p.data;
+    for (let i = 0; i < p.w * p.h; i++) {
+      out[i * 4] = (d[i * 4] * 256 + d[i * 4 + 1]) / 100;
+      out[i * 4 + 1] = (d[i * 4 + 2] / 255 * 2 - 1) * 8;
+      out[i * 4 + 2] = (d[i * 4 + 3] / 255 * 2 - 1) * 8;
+    }
+    return out;
   }
 
   /**
@@ -659,21 +777,21 @@ export class CesiumView {
         fabric: {
           type: "WaterDepth",
           uniforms: {
-            uDepth: this._depthCanvas,
+            uState: this._depthCanvas,
             uFront: this._frontCanvas,
             uUp: Cesium.Cartesian3.normalize(
               Cesium.Cartesian3.fromDegrees(lonC, latC, 0), new Cesium.Cartesian3()),
-            uFlow: this._frontCanvas,   // プレースホルダ: 後で実データに差し替え
+            uBldg: this._frontCanvas,   // プレースホルダ: 後で実データに差し替え
             uTime: 0.0,
           },
           // source 内で各ユニフォームを参照すると createUniform が
-          // uDepth_0/uFront_1/uUp_2/uFlow_3/uTime_4 に改名して宣言・バインドする
+          // uState_0/uFront_1/uUp_2/uBldg_3/uTime_4 に改名して宣言・バインドする
           // (uniforms オブジェクトの挿入順)。vertex/fragment でその名前を使う。
           source: "czm_material czm_getMaterial(czm_materialInput materialInput) {\n"
             + "  czm_material m = czm_getDefaultMaterial(materialInput);\n"
-            + "  m.diffuse = texture(uDepth, materialInput.st).rgb\n"
+            + "  m.diffuse = texture(uState, materialInput.st).rgb\n"
             + "    + texture(uFront, materialInput.st).rgb\n"
-            + "    + texture(uFlow, materialInput.st).rgb\n"
+            + "    + texture(uBldg, materialInput.st).rgb\n"
             + "    + uUp + vec3(uTime) * 0.0;\n"
             + "  return m;\n"
             + "}\n",
@@ -706,44 +824,61 @@ export class CesiumView {
     await this._meshPromise;
   }
 
-  /** 水深・流速・冠水年齢テクスチャを最新の状態で作り直す。 */
-  _uploadWaterTextures(rgba) {
+  /** 同寸なら copyFrom で再利用、違えば作り直し (旧Cesium.Textureはdestroyする)。
+   * 毎回 new Texture だと割当チャーンとVRAMリークを起こす。 */
+  _setTex(tex, w, h, u8, filter) {
     const Cesium = window.Cesium;
     const ctx = this.viewer.scene.context;
-    const n = this.stateW * this.stateH;
-    const depth = new Uint8Array(n * 4);
-    const front = new Uint8Array(n * 4);
-    const flow = new Uint8Array(n * 4);
-    // 流速は領域全体の最大値で正規化して [-1,1] → [0,255] に詰める。
-    let qmax = 0.02;
-    for (let i = 0; i < n; i += 4) {
-      const sp = Math.hypot(rgba[i * 4 + 1], rgba[i * 4 + 2]);
-      if (sp > qmax) qmax = sp;
+    if (tex && tex.width === w && tex.height === h) {
+      // Cesium 1.132: copyFrom({source:{arrayBufferView,width,height}})
+      tex.copyFrom({ source: { arrayBufferView: u8, width: w, height: h } });
+      return tex;
     }
+    if (tex) tex.destroy();
+    return makeDataTex(Cesium, ctx, w, h, u8, filter);
+  }
+  /** uBldg (建物高さラスタ、表示解像度) を初回だけアップロードする。 */
+  _uploadBldgTex() {
+    if (this._bldgTexDone) return;   // 建物ラスタはリージョン内で不変
+    const u = this._waterAppearance.material.uniforms;
+    if (this._bldgU8) {
+      this._bldgTex = this._setTex(this._bldgTex,
+        this._bldgU8.w, this._bldgU8.h, this._bldgU8.data, "NEAREST");
+      u.uBldg = this._bldgTex;
+    } else {
+      // 建物データなし: 全域0 (マスクなし) の1x1
+      if (!this._bldgEmptyTex) {
+        this._bldgEmptyTex = this._setTex(null, 1, 1, new Uint8Array(4), "NEAREST");
+      }
+      u.uBldg = this._bldgEmptyTex;
+    }
+    this._bldgTexDone = true;
+  }
+
+
+  /** 水深・流速・冠水年齢テクスチャを最新の状態で作り直す。 */
+  _uploadWaterTextures(pack) {
+    const n = pack.w * pack.h;
+    const front = new Uint8Array(n * 4);
     for (let i = 0; i < n; i++) {
-      const cm = Math.min(65535, Math.max(0, Math.round(rgba[i * 4] * 100)));
-      depth[i * 4] = cm >> 8;
-      depth[i * 4 + 1] = cm & 0xff;
-      depth[i * 4 + 3] = 255;
-      const age = Math.min(255, Math.round(this._frontAge[i] / 4));
-      front[i * 4] = age;
+      front[i * 4] = Math.min(255, Math.round(this._frontAge[i] / 4));
       front[i * 4 + 3] = 255;
-      flow[i * 4 + 1] = Math.round((rgba[i * 4 + 1] / qmax * 0.5 + 0.5) * 255);
-      flow[i * 4 + 2] = Math.round((rgba[i * 4 + 2] / qmax * 0.5 + 0.5) * 255);
-      flow[i * 4 + 3] = 255;
     }
     const u = this._waterAppearance.material.uniforms;
-    // 建物セルの深度を隣接道路に滲ませないため NEAREST サンプル
-    u.uDepth = makeDataTex(Cesium, ctx, this.stateW, this.stateH, depth, "NEAREST");
-    u.uFront = makeDataTex(Cesium, ctx, this.stateW, this.stateH, front);
-    u.uFlow = makeDataTex(Cesium, ctx, this.stateW, this.stateH, flow);
+    // cmを2byteに詰めているので LINEAR は上下byteを跨いで誤値になる。
+    // NEAREST 固定 (建物稜線またぎの深度滲みも防ぐ)。
+    this._stateTex = this._setTex(this._stateTex, pack.w, pack.h, pack.data, "NEAREST");
+    u.uState = this._stateTex;
+    this._frontTex = this._setTex(this._frontTex, pack.w, pack.h, front, "LINEAR");
+    u.uFront = this._frontTex;
   }
 
   /** 冠水フロント: 各セルの wet-since 年齢を更新する。
    * snap=true (シーク等の非連続更新) では全セルを「古い冠水」として扱い、
-   * 琥珀グローを発火させない。 */
-  _updateFront(rgba, snap = false) {
-    const n = this.stateW * this.stateH;
+   * 琥珀グローを発火させない。pack.data の RG を cm として読む。 */
+  _updateFront(pack, snap = false) {
+    const d = pack.data;
+    const n = pack.w * pack.h;
     if (!this._frontAge || this._frontAge.length !== n) {
       this._frontAge = new Float32Array(n).fill(1e9);
       this._wet = new Uint8Array(n);
@@ -752,7 +887,7 @@ export class CesiumView {
     }
     // 同一状態 (停止中・リプレイの同一フレーム) では年齢を進めない。
     let sig = 0;
-    for (let i = 0; i < n; i += 16) sig += rgba[i * 4];
+    for (let i = 0; i < n; i += 16) sig += d[i * 4];
     if (sig === this._frontSig) return;
     this._frontSig = sig;
     const now = performance.now();
@@ -761,13 +896,13 @@ export class CesiumView {
     if (snap) {
       // シーク: wet状態だけ同期し、年齢はグローしない程度に大きく保つ
       for (let i = 0; i < n; i++) {
-        this._wet[i] = rgba[i * 4] > FRONT_WET_M ? 1 : 0;
+        this._wet[i] = (d[i * 4] * 256 + d[i * 4 + 1]) > FRONT_WET_M * 100 ? 1 : 0;
         if (this._wet[i] && this._frontAge[i] < 999) this._frontAge[i] = 999;
       }
       return;
     }
     for (let i = 0; i < n; i++) {
-      const wet = rgba[i * 4] > FRONT_WET_M ? 1 : 0;
+      const wet = (d[i * 4] * 256 + d[i * 4 + 1]) > FRONT_WET_M * 100 ? 1 : 0;
       if (wet && !this._wet[i]) this._frontAge[i] = 0;
       else this._frontAge[i] += dt;
       this._wet[i] = wet;
@@ -778,18 +913,20 @@ export class CesiumView {
 
   /** 状態RGBA (h,qx,qy) の (u,v) サンプル。v=0 が南。out={vx,vy,h}. */
   _streakSample(u, v, out) {
-    const d = this._stateData, W = this.stateW, H = this.stateH;
+    const p = this._pack, d = p && p.data, W = p && p.w, H = p && p.h;
     if (!d || !W || !H) { out.h = 0; out.vx = 0; out.vy = 0; return; }
     const i = Math.min(W - 1, Math.max(0, (u * (W - 1)) | 0));
     const j = Math.min(H - 1, Math.max(0, (v * (H - 1)) | 0));
     const k = (j * W + i) * 4;
-    const h = d[k];
+    const h = (d[k] * 256 + d[k + 1]) / 100;
     out.h = h;
     // 浅水(h<10cm)では速度が爆発するので下限を設ける。物理的に
     // 水深3cmの地表水が20m/sで流れることはない。
     const hs = Math.max(h, 0.10);
-    if (h > 1e-4) { out.vx = d[k + 1] / hs; out.vy = d[k + 2] / hs; }
-    else { out.vx = 0; out.vy = 0; }
+    if (h > 1e-4) {
+      out.vx = (d[k + 2] / 255 * 2 - 1) * 8 / hs;
+      out.vy = (d[k + 3] / 255 * 2 - 1) * 8 / hs;
+    } else { out.vx = 0; out.vy = 0; }
   }
   /** 湿った流れのあるセルへ粒子を撒き直す。遠くでは重要度で絞る。 */
   _streakRespawn(p, minScore) {
@@ -811,6 +948,9 @@ export class CesiumView {
   /** 画面空間のストリークオーバーレイを構築する。 */
   _initStreaks() {
     if (this._streaks) return;
+    // _init 完了前に setFlowEnabled から呼ばれうる (起動時の自動3D切替)。
+    // viewer未生成で camera.* に触れると TypeError になるため遅延する。
+    if (!this.viewer) return;   // setRegion が viewer 生成後に再呼ぶ
     const cv = document.createElement("canvas");
     cv.style.cssText = "position:absolute;inset:0;width:100%;height:100%;"
       + "pointer-events:none;z-index:3;";
@@ -849,8 +989,8 @@ export class CesiumView {
   /** postRender: ストリークを1フレーム進めて描画する。 */
   _stepStreaks() {
     const s = this._streaks;
-    if (!this._flowOn || !s || !this._stateData || !this.bbox || !this.viewer) return;
-    if (!s.parts.length) this._seedStreaks();   // _stateData到着後に遅延シード
+    if (!this._flowOn || !s || !this._pack || !this.bbox || !this.viewer) return;
+    if (!s.parts.length) this._seedStreaks();   // _pack到着後に遅延シード
     const now = performance.now();
     if (s.lastDraw && now - s.lastDraw < 33) return;  // ~30fps に絞る
     const Cesium = window.Cesium;
