@@ -96,9 +96,9 @@
    },
    "source": {
     "type": "raster",
-    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0000.tif"
+    "url": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0000.tif"
    },
-   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0000.tif"
+   "sourcePath": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0000.tif"
   },
   {
    "id": "flood-nagoya_univ-frame_0060",
@@ -176,9 +176,9 @@
    },
    "source": {
     "type": "raster",
-    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0060.tif"
+    "url": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0060.tif"
    },
-   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0060.tif"
+   "sourcePath": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0060.tif"
   },
   {
    "id": "flood-nagoya_univ-frame_0120",
@@ -256,9 +256,9 @@
    },
    "source": {
     "type": "raster",
-    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0120.tif"
+    "url": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0120.tif"
    },
-   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0120.tif"
+   "sourcePath": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0120.tif"
   },
   {
    "id": "flood-nagoya_univ-frame_0180",
@@ -336,9 +336,9 @@
    },
    "source": {
     "type": "raster",
-    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0180.tif"
+    "url": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0180.tif"
    },
-   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0180.tif"
+   "sourcePath": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0180.tif"
   },
   {
    "id": "flood-nagoya_univ-frame_0240",
@@ -416,9 +416,9 @@
    },
    "source": {
     "type": "raster",
-    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0240.tif"
+    "url": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0240.tif"
    },
-   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0240.tif"
+   "sourcePath": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0240.tif"
   },
   {
    "id": "flood-nagoya_univ-frame_0300",
@@ -496,9 +496,9 @@
    },
    "source": {
     "type": "raster",
-    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0300.tif"
+    "url": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0300.tif"
    },
-   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0300.tif"
+   "sourcePath": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0300.tif"
   },
   {
    "id": "flood-nagoya_univ-frame_0338",
@@ -576,9 +576,9 @@
    },
    "source": {
     "type": "raster",
-    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0338.tif"
+    "url": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0338.tif"
    },
-   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0338.tif"
+   "sourcePath": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0338.tif"
   },
   {
    "id": "flood-nagoya_univ-frame_0360",
@@ -656,9 +656,9 @@
    },
    "source": {
     "type": "raster",
-    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0360.tif"
+    "url": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0360.tif"
    },
-   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0360.tif"
+   "sourcePath": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0360.tif"
   },
   {
    "id": "flood-nagoya_univ-frame_0420",
@@ -736,9 +736,9 @@
    },
    "source": {
     "type": "raster",
-    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0420.tif"
+    "url": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0420.tif"
    },
-   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0420.tif"
+   "sourcePath": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0420.tif"
   },
   {
    "id": "flood-nagoya_univ-frame_0480",
@@ -816,9 +816,9 @@
    },
    "source": {
     "type": "raster",
-    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0480.tif"
+    "url": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0480.tif"
    },
-   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0480.tif"
+   "sourcePath": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0480.tif"
   },
   {
    "id": "flood-nagoya_univ-frame_0540",
@@ -896,9 +896,9 @@
    },
    "source": {
     "type": "raster",
-    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0540.tif"
+    "url": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0540.tif"
    },
-   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0540.tif"
+   "sourcePath": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0540.tif"
   },
   {
    "id": "flood-nagoya_univ-frame_0600",
@@ -976,9 +976,9 @@
    },
    "source": {
     "type": "raster",
-    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0600.tif"
+    "url": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0600.tif"
    },
-   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0600.tif"
+   "sourcePath": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0600.tif"
   },
   {
    "id": "flood-nagoya_univ-frame_0660",
@@ -1056,9 +1056,9 @@
    },
    "source": {
     "type": "raster",
-    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0660.tif"
+    "url": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0660.tif"
    },
-   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0660.tif"
+   "sourcePath": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/frame_0660.tif"
   },
   {
    "id": "flood-nagoya_univ-max",
@@ -1136,16 +1136,16 @@
    },
    "source": {
     "type": "raster",
-    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/depth_max.tif"
+    "url": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/depth_max.tif"
    },
-   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/depth_max.tif"
+   "sourcePath": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/depth_max.tif"
   }
  ],
  "metadata": {
   "generator": "flood-nagoya geolibre-export",
   "source": "https://www.data.jma.go.jp/stats/etrn/view/hourly_s1.php?prec_no=51&block_no=47636&year=2026&month=9&day=8&view=1",
   "scenario": "rain_20260908_47636.json",
-  "frameStyle": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/depth.style.json",
+  "frameStyle": "https://kasi-x.github.io/flood-nagoya/nagoya_univ/depth.style.json",
   "note": "storymap チャプターで時間経過を再生。レイヤーON/OFFでも個別表示可。"
  },
  "storymap": {
