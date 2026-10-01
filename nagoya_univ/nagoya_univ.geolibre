@@ -1,0 +1,1609 @@
+{
+ "version": "0.1.0",
+ "name": "名古屋 浸水リプレイ — 名古屋大学周辺 (名古屋 2026-09-08)",
+ "mapView": {
+  "center": [
+   136.96668,
+   35.15458
+  ],
+  "zoom": 13,
+  "bearing": 0,
+  "pitch": 0,
+  "bbox": [
+   136.92806,
+   35.13002,
+   137.00531,
+   35.17914
+  ]
+ },
+ "basemapStyleUrl": "https://tiles.openfreemap.org/styles/liberty",
+ "basemapVisible": true,
+ "basemapOpacity": 1,
+ "layers": [
+  {
+   "id": "flood-nagoya_univ-frame_0000",
+   "name": "浸水深 +0:00",
+   "type": "cog",
+   "visible": false,
+   "opacity": 1,
+   "style": {
+    "minZoom": 0,
+    "maxZoom": 24,
+    "fillColor": "#3b82f6",
+    "strokeColor": "#1e40af",
+    "strokeWidth": 2,
+    "fillOpacity": 0.6,
+    "circleRadius": 6,
+    "textColor": "#111827",
+    "textHaloColor": "#ffffff",
+    "textHaloWidth": 2,
+    "textSize": 16,
+    "extrusionEnabled": false,
+    "extrusionColor": "#3b82f6",
+    "extrusionOpacity": 0.8,
+    "extrusionHeightProperty": "height",
+    "extrusionHeightScale": 1,
+    "extrusionBase": 0,
+    "extrusionAdvancedStyleEnabled": false,
+    "extrusionColorExpression": "",
+    "extrusionHeightExpression": "",
+    "vectorStyleMode": "single",
+    "vectorStyleProperty": "",
+    "vectorStyleClassCount": 5,
+    "vectorStyleColorRamp": "viridis",
+    "vectorStyleClassificationScheme": "equal-interval",
+    "vectorStyleStops": [
+     {
+      "value": 0,
+      "color": "#dbeafe"
+     },
+     {
+      "value": 1,
+      "color": "#2563eb"
+     }
+    ],
+    "vectorStyleExpression": "",
+    "pointRenderer": "single",
+    "heatmapRadius": 30,
+    "heatmapIntensity": 1,
+    "heatmapColorRamp": "turbo",
+    "heatmapWeightProperty": "",
+    "clusterRadius": 50,
+    "clusterMaxZoom": 14,
+    "rasterBrightnessMin": 0,
+    "rasterBrightnessMax": 1,
+    "rasterSaturation": 0,
+    "rasterContrast": 0,
+    "rasterHueRotate": 0,
+    "blendMode": "normal"
+   },
+   "metadata": {
+    "customLayerType": "raster",
+    "externalDeckLayer": true,
+    "externalNativeLayer": true,
+    "identifiable": false,
+    "nativeLayerIds": [
+     "flood-nagoya_univ-frame_0000"
+    ],
+    "panelCollapsed": true,
+    "rasterOverlayMode": "interleaved",
+    "rasterSource": "url",
+    "rasterState": {
+     "colormap": "blues"
+    },
+    "sourceIds": [],
+    "sourceKind": "maplibre-gl-raster"
+   },
+   "source": {
+    "type": "raster",
+    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0000.tif"
+   },
+   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0000.tif"
+  },
+  {
+   "id": "flood-nagoya_univ-frame_0060",
+   "name": "浸水深 +1:00",
+   "type": "cog",
+   "visible": false,
+   "opacity": 1,
+   "style": {
+    "minZoom": 0,
+    "maxZoom": 24,
+    "fillColor": "#3b82f6",
+    "strokeColor": "#1e40af",
+    "strokeWidth": 2,
+    "fillOpacity": 0.6,
+    "circleRadius": 6,
+    "textColor": "#111827",
+    "textHaloColor": "#ffffff",
+    "textHaloWidth": 2,
+    "textSize": 16,
+    "extrusionEnabled": false,
+    "extrusionColor": "#3b82f6",
+    "extrusionOpacity": 0.8,
+    "extrusionHeightProperty": "height",
+    "extrusionHeightScale": 1,
+    "extrusionBase": 0,
+    "extrusionAdvancedStyleEnabled": false,
+    "extrusionColorExpression": "",
+    "extrusionHeightExpression": "",
+    "vectorStyleMode": "single",
+    "vectorStyleProperty": "",
+    "vectorStyleClassCount": 5,
+    "vectorStyleColorRamp": "viridis",
+    "vectorStyleClassificationScheme": "equal-interval",
+    "vectorStyleStops": [
+     {
+      "value": 0,
+      "color": "#dbeafe"
+     },
+     {
+      "value": 1,
+      "color": "#2563eb"
+     }
+    ],
+    "vectorStyleExpression": "",
+    "pointRenderer": "single",
+    "heatmapRadius": 30,
+    "heatmapIntensity": 1,
+    "heatmapColorRamp": "turbo",
+    "heatmapWeightProperty": "",
+    "clusterRadius": 50,
+    "clusterMaxZoom": 14,
+    "rasterBrightnessMin": 0,
+    "rasterBrightnessMax": 1,
+    "rasterSaturation": 0,
+    "rasterContrast": 0,
+    "rasterHueRotate": 0,
+    "blendMode": "normal"
+   },
+   "metadata": {
+    "customLayerType": "raster",
+    "externalDeckLayer": true,
+    "externalNativeLayer": true,
+    "identifiable": false,
+    "nativeLayerIds": [
+     "flood-nagoya_univ-frame_0060"
+    ],
+    "panelCollapsed": true,
+    "rasterOverlayMode": "interleaved",
+    "rasterSource": "url",
+    "rasterState": {
+     "colormap": "blues"
+    },
+    "sourceIds": [],
+    "sourceKind": "maplibre-gl-raster"
+   },
+   "source": {
+    "type": "raster",
+    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0060.tif"
+   },
+   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0060.tif"
+  },
+  {
+   "id": "flood-nagoya_univ-frame_0120",
+   "name": "浸水深 +2:00",
+   "type": "cog",
+   "visible": false,
+   "opacity": 1,
+   "style": {
+    "minZoom": 0,
+    "maxZoom": 24,
+    "fillColor": "#3b82f6",
+    "strokeColor": "#1e40af",
+    "strokeWidth": 2,
+    "fillOpacity": 0.6,
+    "circleRadius": 6,
+    "textColor": "#111827",
+    "textHaloColor": "#ffffff",
+    "textHaloWidth": 2,
+    "textSize": 16,
+    "extrusionEnabled": false,
+    "extrusionColor": "#3b82f6",
+    "extrusionOpacity": 0.8,
+    "extrusionHeightProperty": "height",
+    "extrusionHeightScale": 1,
+    "extrusionBase": 0,
+    "extrusionAdvancedStyleEnabled": false,
+    "extrusionColorExpression": "",
+    "extrusionHeightExpression": "",
+    "vectorStyleMode": "single",
+    "vectorStyleProperty": "",
+    "vectorStyleClassCount": 5,
+    "vectorStyleColorRamp": "viridis",
+    "vectorStyleClassificationScheme": "equal-interval",
+    "vectorStyleStops": [
+     {
+      "value": 0,
+      "color": "#dbeafe"
+     },
+     {
+      "value": 1,
+      "color": "#2563eb"
+     }
+    ],
+    "vectorStyleExpression": "",
+    "pointRenderer": "single",
+    "heatmapRadius": 30,
+    "heatmapIntensity": 1,
+    "heatmapColorRamp": "turbo",
+    "heatmapWeightProperty": "",
+    "clusterRadius": 50,
+    "clusterMaxZoom": 14,
+    "rasterBrightnessMin": 0,
+    "rasterBrightnessMax": 1,
+    "rasterSaturation": 0,
+    "rasterContrast": 0,
+    "rasterHueRotate": 0,
+    "blendMode": "normal"
+   },
+   "metadata": {
+    "customLayerType": "raster",
+    "externalDeckLayer": true,
+    "externalNativeLayer": true,
+    "identifiable": false,
+    "nativeLayerIds": [
+     "flood-nagoya_univ-frame_0120"
+    ],
+    "panelCollapsed": true,
+    "rasterOverlayMode": "interleaved",
+    "rasterSource": "url",
+    "rasterState": {
+     "colormap": "blues"
+    },
+    "sourceIds": [],
+    "sourceKind": "maplibre-gl-raster"
+   },
+   "source": {
+    "type": "raster",
+    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0120.tif"
+   },
+   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0120.tif"
+  },
+  {
+   "id": "flood-nagoya_univ-frame_0180",
+   "name": "浸水深 +3:00",
+   "type": "cog",
+   "visible": false,
+   "opacity": 1,
+   "style": {
+    "minZoom": 0,
+    "maxZoom": 24,
+    "fillColor": "#3b82f6",
+    "strokeColor": "#1e40af",
+    "strokeWidth": 2,
+    "fillOpacity": 0.6,
+    "circleRadius": 6,
+    "textColor": "#111827",
+    "textHaloColor": "#ffffff",
+    "textHaloWidth": 2,
+    "textSize": 16,
+    "extrusionEnabled": false,
+    "extrusionColor": "#3b82f6",
+    "extrusionOpacity": 0.8,
+    "extrusionHeightProperty": "height",
+    "extrusionHeightScale": 1,
+    "extrusionBase": 0,
+    "extrusionAdvancedStyleEnabled": false,
+    "extrusionColorExpression": "",
+    "extrusionHeightExpression": "",
+    "vectorStyleMode": "single",
+    "vectorStyleProperty": "",
+    "vectorStyleClassCount": 5,
+    "vectorStyleColorRamp": "viridis",
+    "vectorStyleClassificationScheme": "equal-interval",
+    "vectorStyleStops": [
+     {
+      "value": 0,
+      "color": "#dbeafe"
+     },
+     {
+      "value": 1,
+      "color": "#2563eb"
+     }
+    ],
+    "vectorStyleExpression": "",
+    "pointRenderer": "single",
+    "heatmapRadius": 30,
+    "heatmapIntensity": 1,
+    "heatmapColorRamp": "turbo",
+    "heatmapWeightProperty": "",
+    "clusterRadius": 50,
+    "clusterMaxZoom": 14,
+    "rasterBrightnessMin": 0,
+    "rasterBrightnessMax": 1,
+    "rasterSaturation": 0,
+    "rasterContrast": 0,
+    "rasterHueRotate": 0,
+    "blendMode": "normal"
+   },
+   "metadata": {
+    "customLayerType": "raster",
+    "externalDeckLayer": true,
+    "externalNativeLayer": true,
+    "identifiable": false,
+    "nativeLayerIds": [
+     "flood-nagoya_univ-frame_0180"
+    ],
+    "panelCollapsed": true,
+    "rasterOverlayMode": "interleaved",
+    "rasterSource": "url",
+    "rasterState": {
+     "colormap": "blues"
+    },
+    "sourceIds": [],
+    "sourceKind": "maplibre-gl-raster"
+   },
+   "source": {
+    "type": "raster",
+    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0180.tif"
+   },
+   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0180.tif"
+  },
+  {
+   "id": "flood-nagoya_univ-frame_0240",
+   "name": "浸水深 +4:00",
+   "type": "cog",
+   "visible": false,
+   "opacity": 1,
+   "style": {
+    "minZoom": 0,
+    "maxZoom": 24,
+    "fillColor": "#3b82f6",
+    "strokeColor": "#1e40af",
+    "strokeWidth": 2,
+    "fillOpacity": 0.6,
+    "circleRadius": 6,
+    "textColor": "#111827",
+    "textHaloColor": "#ffffff",
+    "textHaloWidth": 2,
+    "textSize": 16,
+    "extrusionEnabled": false,
+    "extrusionColor": "#3b82f6",
+    "extrusionOpacity": 0.8,
+    "extrusionHeightProperty": "height",
+    "extrusionHeightScale": 1,
+    "extrusionBase": 0,
+    "extrusionAdvancedStyleEnabled": false,
+    "extrusionColorExpression": "",
+    "extrusionHeightExpression": "",
+    "vectorStyleMode": "single",
+    "vectorStyleProperty": "",
+    "vectorStyleClassCount": 5,
+    "vectorStyleColorRamp": "viridis",
+    "vectorStyleClassificationScheme": "equal-interval",
+    "vectorStyleStops": [
+     {
+      "value": 0,
+      "color": "#dbeafe"
+     },
+     {
+      "value": 1,
+      "color": "#2563eb"
+     }
+    ],
+    "vectorStyleExpression": "",
+    "pointRenderer": "single",
+    "heatmapRadius": 30,
+    "heatmapIntensity": 1,
+    "heatmapColorRamp": "turbo",
+    "heatmapWeightProperty": "",
+    "clusterRadius": 50,
+    "clusterMaxZoom": 14,
+    "rasterBrightnessMin": 0,
+    "rasterBrightnessMax": 1,
+    "rasterSaturation": 0,
+    "rasterContrast": 0,
+    "rasterHueRotate": 0,
+    "blendMode": "normal"
+   },
+   "metadata": {
+    "customLayerType": "raster",
+    "externalDeckLayer": true,
+    "externalNativeLayer": true,
+    "identifiable": false,
+    "nativeLayerIds": [
+     "flood-nagoya_univ-frame_0240"
+    ],
+    "panelCollapsed": true,
+    "rasterOverlayMode": "interleaved",
+    "rasterSource": "url",
+    "rasterState": {
+     "colormap": "blues"
+    },
+    "sourceIds": [],
+    "sourceKind": "maplibre-gl-raster"
+   },
+   "source": {
+    "type": "raster",
+    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0240.tif"
+   },
+   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0240.tif"
+  },
+  {
+   "id": "flood-nagoya_univ-frame_0300",
+   "name": "浸水深 +5:00",
+   "type": "cog",
+   "visible": false,
+   "opacity": 1,
+   "style": {
+    "minZoom": 0,
+    "maxZoom": 24,
+    "fillColor": "#3b82f6",
+    "strokeColor": "#1e40af",
+    "strokeWidth": 2,
+    "fillOpacity": 0.6,
+    "circleRadius": 6,
+    "textColor": "#111827",
+    "textHaloColor": "#ffffff",
+    "textHaloWidth": 2,
+    "textSize": 16,
+    "extrusionEnabled": false,
+    "extrusionColor": "#3b82f6",
+    "extrusionOpacity": 0.8,
+    "extrusionHeightProperty": "height",
+    "extrusionHeightScale": 1,
+    "extrusionBase": 0,
+    "extrusionAdvancedStyleEnabled": false,
+    "extrusionColorExpression": "",
+    "extrusionHeightExpression": "",
+    "vectorStyleMode": "single",
+    "vectorStyleProperty": "",
+    "vectorStyleClassCount": 5,
+    "vectorStyleColorRamp": "viridis",
+    "vectorStyleClassificationScheme": "equal-interval",
+    "vectorStyleStops": [
+     {
+      "value": 0,
+      "color": "#dbeafe"
+     },
+     {
+      "value": 1,
+      "color": "#2563eb"
+     }
+    ],
+    "vectorStyleExpression": "",
+    "pointRenderer": "single",
+    "heatmapRadius": 30,
+    "heatmapIntensity": 1,
+    "heatmapColorRamp": "turbo",
+    "heatmapWeightProperty": "",
+    "clusterRadius": 50,
+    "clusterMaxZoom": 14,
+    "rasterBrightnessMin": 0,
+    "rasterBrightnessMax": 1,
+    "rasterSaturation": 0,
+    "rasterContrast": 0,
+    "rasterHueRotate": 0,
+    "blendMode": "normal"
+   },
+   "metadata": {
+    "customLayerType": "raster",
+    "externalDeckLayer": true,
+    "externalNativeLayer": true,
+    "identifiable": false,
+    "nativeLayerIds": [
+     "flood-nagoya_univ-frame_0300"
+    ],
+    "panelCollapsed": true,
+    "rasterOverlayMode": "interleaved",
+    "rasterSource": "url",
+    "rasterState": {
+     "colormap": "blues"
+    },
+    "sourceIds": [],
+    "sourceKind": "maplibre-gl-raster"
+   },
+   "source": {
+    "type": "raster",
+    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0300.tif"
+   },
+   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0300.tif"
+  },
+  {
+   "id": "flood-nagoya_univ-frame_0338",
+   "name": "浸水深 +5:38",
+   "type": "cog",
+   "visible": false,
+   "opacity": 1,
+   "style": {
+    "minZoom": 0,
+    "maxZoom": 24,
+    "fillColor": "#3b82f6",
+    "strokeColor": "#1e40af",
+    "strokeWidth": 2,
+    "fillOpacity": 0.6,
+    "circleRadius": 6,
+    "textColor": "#111827",
+    "textHaloColor": "#ffffff",
+    "textHaloWidth": 2,
+    "textSize": 16,
+    "extrusionEnabled": false,
+    "extrusionColor": "#3b82f6",
+    "extrusionOpacity": 0.8,
+    "extrusionHeightProperty": "height",
+    "extrusionHeightScale": 1,
+    "extrusionBase": 0,
+    "extrusionAdvancedStyleEnabled": false,
+    "extrusionColorExpression": "",
+    "extrusionHeightExpression": "",
+    "vectorStyleMode": "single",
+    "vectorStyleProperty": "",
+    "vectorStyleClassCount": 5,
+    "vectorStyleColorRamp": "viridis",
+    "vectorStyleClassificationScheme": "equal-interval",
+    "vectorStyleStops": [
+     {
+      "value": 0,
+      "color": "#dbeafe"
+     },
+     {
+      "value": 1,
+      "color": "#2563eb"
+     }
+    ],
+    "vectorStyleExpression": "",
+    "pointRenderer": "single",
+    "heatmapRadius": 30,
+    "heatmapIntensity": 1,
+    "heatmapColorRamp": "turbo",
+    "heatmapWeightProperty": "",
+    "clusterRadius": 50,
+    "clusterMaxZoom": 14,
+    "rasterBrightnessMin": 0,
+    "rasterBrightnessMax": 1,
+    "rasterSaturation": 0,
+    "rasterContrast": 0,
+    "rasterHueRotate": 0,
+    "blendMode": "normal"
+   },
+   "metadata": {
+    "customLayerType": "raster",
+    "externalDeckLayer": true,
+    "externalNativeLayer": true,
+    "identifiable": false,
+    "nativeLayerIds": [
+     "flood-nagoya_univ-frame_0338"
+    ],
+    "panelCollapsed": true,
+    "rasterOverlayMode": "interleaved",
+    "rasterSource": "url",
+    "rasterState": {
+     "colormap": "blues"
+    },
+    "sourceIds": [],
+    "sourceKind": "maplibre-gl-raster"
+   },
+   "source": {
+    "type": "raster",
+    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0338.tif"
+   },
+   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0338.tif"
+  },
+  {
+   "id": "flood-nagoya_univ-frame_0360",
+   "name": "浸水深 +6:00",
+   "type": "cog",
+   "visible": false,
+   "opacity": 1,
+   "style": {
+    "minZoom": 0,
+    "maxZoom": 24,
+    "fillColor": "#3b82f6",
+    "strokeColor": "#1e40af",
+    "strokeWidth": 2,
+    "fillOpacity": 0.6,
+    "circleRadius": 6,
+    "textColor": "#111827",
+    "textHaloColor": "#ffffff",
+    "textHaloWidth": 2,
+    "textSize": 16,
+    "extrusionEnabled": false,
+    "extrusionColor": "#3b82f6",
+    "extrusionOpacity": 0.8,
+    "extrusionHeightProperty": "height",
+    "extrusionHeightScale": 1,
+    "extrusionBase": 0,
+    "extrusionAdvancedStyleEnabled": false,
+    "extrusionColorExpression": "",
+    "extrusionHeightExpression": "",
+    "vectorStyleMode": "single",
+    "vectorStyleProperty": "",
+    "vectorStyleClassCount": 5,
+    "vectorStyleColorRamp": "viridis",
+    "vectorStyleClassificationScheme": "equal-interval",
+    "vectorStyleStops": [
+     {
+      "value": 0,
+      "color": "#dbeafe"
+     },
+     {
+      "value": 1,
+      "color": "#2563eb"
+     }
+    ],
+    "vectorStyleExpression": "",
+    "pointRenderer": "single",
+    "heatmapRadius": 30,
+    "heatmapIntensity": 1,
+    "heatmapColorRamp": "turbo",
+    "heatmapWeightProperty": "",
+    "clusterRadius": 50,
+    "clusterMaxZoom": 14,
+    "rasterBrightnessMin": 0,
+    "rasterBrightnessMax": 1,
+    "rasterSaturation": 0,
+    "rasterContrast": 0,
+    "rasterHueRotate": 0,
+    "blendMode": "normal"
+   },
+   "metadata": {
+    "customLayerType": "raster",
+    "externalDeckLayer": true,
+    "externalNativeLayer": true,
+    "identifiable": false,
+    "nativeLayerIds": [
+     "flood-nagoya_univ-frame_0360"
+    ],
+    "panelCollapsed": true,
+    "rasterOverlayMode": "interleaved",
+    "rasterSource": "url",
+    "rasterState": {
+     "colormap": "blues"
+    },
+    "sourceIds": [],
+    "sourceKind": "maplibre-gl-raster"
+   },
+   "source": {
+    "type": "raster",
+    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0360.tif"
+   },
+   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0360.tif"
+  },
+  {
+   "id": "flood-nagoya_univ-frame_0420",
+   "name": "浸水深 +7:00",
+   "type": "cog",
+   "visible": false,
+   "opacity": 1,
+   "style": {
+    "minZoom": 0,
+    "maxZoom": 24,
+    "fillColor": "#3b82f6",
+    "strokeColor": "#1e40af",
+    "strokeWidth": 2,
+    "fillOpacity": 0.6,
+    "circleRadius": 6,
+    "textColor": "#111827",
+    "textHaloColor": "#ffffff",
+    "textHaloWidth": 2,
+    "textSize": 16,
+    "extrusionEnabled": false,
+    "extrusionColor": "#3b82f6",
+    "extrusionOpacity": 0.8,
+    "extrusionHeightProperty": "height",
+    "extrusionHeightScale": 1,
+    "extrusionBase": 0,
+    "extrusionAdvancedStyleEnabled": false,
+    "extrusionColorExpression": "",
+    "extrusionHeightExpression": "",
+    "vectorStyleMode": "single",
+    "vectorStyleProperty": "",
+    "vectorStyleClassCount": 5,
+    "vectorStyleColorRamp": "viridis",
+    "vectorStyleClassificationScheme": "equal-interval",
+    "vectorStyleStops": [
+     {
+      "value": 0,
+      "color": "#dbeafe"
+     },
+     {
+      "value": 1,
+      "color": "#2563eb"
+     }
+    ],
+    "vectorStyleExpression": "",
+    "pointRenderer": "single",
+    "heatmapRadius": 30,
+    "heatmapIntensity": 1,
+    "heatmapColorRamp": "turbo",
+    "heatmapWeightProperty": "",
+    "clusterRadius": 50,
+    "clusterMaxZoom": 14,
+    "rasterBrightnessMin": 0,
+    "rasterBrightnessMax": 1,
+    "rasterSaturation": 0,
+    "rasterContrast": 0,
+    "rasterHueRotate": 0,
+    "blendMode": "normal"
+   },
+   "metadata": {
+    "customLayerType": "raster",
+    "externalDeckLayer": true,
+    "externalNativeLayer": true,
+    "identifiable": false,
+    "nativeLayerIds": [
+     "flood-nagoya_univ-frame_0420"
+    ],
+    "panelCollapsed": true,
+    "rasterOverlayMode": "interleaved",
+    "rasterSource": "url",
+    "rasterState": {
+     "colormap": "blues"
+    },
+    "sourceIds": [],
+    "sourceKind": "maplibre-gl-raster"
+   },
+   "source": {
+    "type": "raster",
+    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0420.tif"
+   },
+   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0420.tif"
+  },
+  {
+   "id": "flood-nagoya_univ-frame_0480",
+   "name": "浸水深 +8:00",
+   "type": "cog",
+   "visible": false,
+   "opacity": 1,
+   "style": {
+    "minZoom": 0,
+    "maxZoom": 24,
+    "fillColor": "#3b82f6",
+    "strokeColor": "#1e40af",
+    "strokeWidth": 2,
+    "fillOpacity": 0.6,
+    "circleRadius": 6,
+    "textColor": "#111827",
+    "textHaloColor": "#ffffff",
+    "textHaloWidth": 2,
+    "textSize": 16,
+    "extrusionEnabled": false,
+    "extrusionColor": "#3b82f6",
+    "extrusionOpacity": 0.8,
+    "extrusionHeightProperty": "height",
+    "extrusionHeightScale": 1,
+    "extrusionBase": 0,
+    "extrusionAdvancedStyleEnabled": false,
+    "extrusionColorExpression": "",
+    "extrusionHeightExpression": "",
+    "vectorStyleMode": "single",
+    "vectorStyleProperty": "",
+    "vectorStyleClassCount": 5,
+    "vectorStyleColorRamp": "viridis",
+    "vectorStyleClassificationScheme": "equal-interval",
+    "vectorStyleStops": [
+     {
+      "value": 0,
+      "color": "#dbeafe"
+     },
+     {
+      "value": 1,
+      "color": "#2563eb"
+     }
+    ],
+    "vectorStyleExpression": "",
+    "pointRenderer": "single",
+    "heatmapRadius": 30,
+    "heatmapIntensity": 1,
+    "heatmapColorRamp": "turbo",
+    "heatmapWeightProperty": "",
+    "clusterRadius": 50,
+    "clusterMaxZoom": 14,
+    "rasterBrightnessMin": 0,
+    "rasterBrightnessMax": 1,
+    "rasterSaturation": 0,
+    "rasterContrast": 0,
+    "rasterHueRotate": 0,
+    "blendMode": "normal"
+   },
+   "metadata": {
+    "customLayerType": "raster",
+    "externalDeckLayer": true,
+    "externalNativeLayer": true,
+    "identifiable": false,
+    "nativeLayerIds": [
+     "flood-nagoya_univ-frame_0480"
+    ],
+    "panelCollapsed": true,
+    "rasterOverlayMode": "interleaved",
+    "rasterSource": "url",
+    "rasterState": {
+     "colormap": "blues"
+    },
+    "sourceIds": [],
+    "sourceKind": "maplibre-gl-raster"
+   },
+   "source": {
+    "type": "raster",
+    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0480.tif"
+   },
+   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0480.tif"
+  },
+  {
+   "id": "flood-nagoya_univ-frame_0540",
+   "name": "浸水深 +9:00",
+   "type": "cog",
+   "visible": false,
+   "opacity": 1,
+   "style": {
+    "minZoom": 0,
+    "maxZoom": 24,
+    "fillColor": "#3b82f6",
+    "strokeColor": "#1e40af",
+    "strokeWidth": 2,
+    "fillOpacity": 0.6,
+    "circleRadius": 6,
+    "textColor": "#111827",
+    "textHaloColor": "#ffffff",
+    "textHaloWidth": 2,
+    "textSize": 16,
+    "extrusionEnabled": false,
+    "extrusionColor": "#3b82f6",
+    "extrusionOpacity": 0.8,
+    "extrusionHeightProperty": "height",
+    "extrusionHeightScale": 1,
+    "extrusionBase": 0,
+    "extrusionAdvancedStyleEnabled": false,
+    "extrusionColorExpression": "",
+    "extrusionHeightExpression": "",
+    "vectorStyleMode": "single",
+    "vectorStyleProperty": "",
+    "vectorStyleClassCount": 5,
+    "vectorStyleColorRamp": "viridis",
+    "vectorStyleClassificationScheme": "equal-interval",
+    "vectorStyleStops": [
+     {
+      "value": 0,
+      "color": "#dbeafe"
+     },
+     {
+      "value": 1,
+      "color": "#2563eb"
+     }
+    ],
+    "vectorStyleExpression": "",
+    "pointRenderer": "single",
+    "heatmapRadius": 30,
+    "heatmapIntensity": 1,
+    "heatmapColorRamp": "turbo",
+    "heatmapWeightProperty": "",
+    "clusterRadius": 50,
+    "clusterMaxZoom": 14,
+    "rasterBrightnessMin": 0,
+    "rasterBrightnessMax": 1,
+    "rasterSaturation": 0,
+    "rasterContrast": 0,
+    "rasterHueRotate": 0,
+    "blendMode": "normal"
+   },
+   "metadata": {
+    "customLayerType": "raster",
+    "externalDeckLayer": true,
+    "externalNativeLayer": true,
+    "identifiable": false,
+    "nativeLayerIds": [
+     "flood-nagoya_univ-frame_0540"
+    ],
+    "panelCollapsed": true,
+    "rasterOverlayMode": "interleaved",
+    "rasterSource": "url",
+    "rasterState": {
+     "colormap": "blues"
+    },
+    "sourceIds": [],
+    "sourceKind": "maplibre-gl-raster"
+   },
+   "source": {
+    "type": "raster",
+    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0540.tif"
+   },
+   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0540.tif"
+  },
+  {
+   "id": "flood-nagoya_univ-frame_0600",
+   "name": "浸水深 +10:00",
+   "type": "cog",
+   "visible": false,
+   "opacity": 1,
+   "style": {
+    "minZoom": 0,
+    "maxZoom": 24,
+    "fillColor": "#3b82f6",
+    "strokeColor": "#1e40af",
+    "strokeWidth": 2,
+    "fillOpacity": 0.6,
+    "circleRadius": 6,
+    "textColor": "#111827",
+    "textHaloColor": "#ffffff",
+    "textHaloWidth": 2,
+    "textSize": 16,
+    "extrusionEnabled": false,
+    "extrusionColor": "#3b82f6",
+    "extrusionOpacity": 0.8,
+    "extrusionHeightProperty": "height",
+    "extrusionHeightScale": 1,
+    "extrusionBase": 0,
+    "extrusionAdvancedStyleEnabled": false,
+    "extrusionColorExpression": "",
+    "extrusionHeightExpression": "",
+    "vectorStyleMode": "single",
+    "vectorStyleProperty": "",
+    "vectorStyleClassCount": 5,
+    "vectorStyleColorRamp": "viridis",
+    "vectorStyleClassificationScheme": "equal-interval",
+    "vectorStyleStops": [
+     {
+      "value": 0,
+      "color": "#dbeafe"
+     },
+     {
+      "value": 1,
+      "color": "#2563eb"
+     }
+    ],
+    "vectorStyleExpression": "",
+    "pointRenderer": "single",
+    "heatmapRadius": 30,
+    "heatmapIntensity": 1,
+    "heatmapColorRamp": "turbo",
+    "heatmapWeightProperty": "",
+    "clusterRadius": 50,
+    "clusterMaxZoom": 14,
+    "rasterBrightnessMin": 0,
+    "rasterBrightnessMax": 1,
+    "rasterSaturation": 0,
+    "rasterContrast": 0,
+    "rasterHueRotate": 0,
+    "blendMode": "normal"
+   },
+   "metadata": {
+    "customLayerType": "raster",
+    "externalDeckLayer": true,
+    "externalNativeLayer": true,
+    "identifiable": false,
+    "nativeLayerIds": [
+     "flood-nagoya_univ-frame_0600"
+    ],
+    "panelCollapsed": true,
+    "rasterOverlayMode": "interleaved",
+    "rasterSource": "url",
+    "rasterState": {
+     "colormap": "blues"
+    },
+    "sourceIds": [],
+    "sourceKind": "maplibre-gl-raster"
+   },
+   "source": {
+    "type": "raster",
+    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0600.tif"
+   },
+   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0600.tif"
+  },
+  {
+   "id": "flood-nagoya_univ-frame_0660",
+   "name": "浸水深 +11:00",
+   "type": "cog",
+   "visible": false,
+   "opacity": 1,
+   "style": {
+    "minZoom": 0,
+    "maxZoom": 24,
+    "fillColor": "#3b82f6",
+    "strokeColor": "#1e40af",
+    "strokeWidth": 2,
+    "fillOpacity": 0.6,
+    "circleRadius": 6,
+    "textColor": "#111827",
+    "textHaloColor": "#ffffff",
+    "textHaloWidth": 2,
+    "textSize": 16,
+    "extrusionEnabled": false,
+    "extrusionColor": "#3b82f6",
+    "extrusionOpacity": 0.8,
+    "extrusionHeightProperty": "height",
+    "extrusionHeightScale": 1,
+    "extrusionBase": 0,
+    "extrusionAdvancedStyleEnabled": false,
+    "extrusionColorExpression": "",
+    "extrusionHeightExpression": "",
+    "vectorStyleMode": "single",
+    "vectorStyleProperty": "",
+    "vectorStyleClassCount": 5,
+    "vectorStyleColorRamp": "viridis",
+    "vectorStyleClassificationScheme": "equal-interval",
+    "vectorStyleStops": [
+     {
+      "value": 0,
+      "color": "#dbeafe"
+     },
+     {
+      "value": 1,
+      "color": "#2563eb"
+     }
+    ],
+    "vectorStyleExpression": "",
+    "pointRenderer": "single",
+    "heatmapRadius": 30,
+    "heatmapIntensity": 1,
+    "heatmapColorRamp": "turbo",
+    "heatmapWeightProperty": "",
+    "clusterRadius": 50,
+    "clusterMaxZoom": 14,
+    "rasterBrightnessMin": 0,
+    "rasterBrightnessMax": 1,
+    "rasterSaturation": 0,
+    "rasterContrast": 0,
+    "rasterHueRotate": 0,
+    "blendMode": "normal"
+   },
+   "metadata": {
+    "customLayerType": "raster",
+    "externalDeckLayer": true,
+    "externalNativeLayer": true,
+    "identifiable": false,
+    "nativeLayerIds": [
+     "flood-nagoya_univ-frame_0660"
+    ],
+    "panelCollapsed": true,
+    "rasterOverlayMode": "interleaved",
+    "rasterSource": "url",
+    "rasterState": {
+     "colormap": "blues"
+    },
+    "sourceIds": [],
+    "sourceKind": "maplibre-gl-raster"
+   },
+   "source": {
+    "type": "raster",
+    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0660.tif"
+   },
+   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/frame_0660.tif"
+  },
+  {
+   "id": "flood-nagoya_univ-max",
+   "name": "最大浸水深",
+   "type": "cog",
+   "visible": true,
+   "opacity": 0.6,
+   "style": {
+    "minZoom": 0,
+    "maxZoom": 24,
+    "fillColor": "#3b82f6",
+    "strokeColor": "#1e40af",
+    "strokeWidth": 2,
+    "fillOpacity": 0.6,
+    "circleRadius": 6,
+    "textColor": "#111827",
+    "textHaloColor": "#ffffff",
+    "textHaloWidth": 2,
+    "textSize": 16,
+    "extrusionEnabled": false,
+    "extrusionColor": "#3b82f6",
+    "extrusionOpacity": 0.8,
+    "extrusionHeightProperty": "height",
+    "extrusionHeightScale": 1,
+    "extrusionBase": 0,
+    "extrusionAdvancedStyleEnabled": false,
+    "extrusionColorExpression": "",
+    "extrusionHeightExpression": "",
+    "vectorStyleMode": "single",
+    "vectorStyleProperty": "",
+    "vectorStyleClassCount": 5,
+    "vectorStyleColorRamp": "viridis",
+    "vectorStyleClassificationScheme": "equal-interval",
+    "vectorStyleStops": [
+     {
+      "value": 0,
+      "color": "#dbeafe"
+     },
+     {
+      "value": 1,
+      "color": "#2563eb"
+     }
+    ],
+    "vectorStyleExpression": "",
+    "pointRenderer": "single",
+    "heatmapRadius": 30,
+    "heatmapIntensity": 1,
+    "heatmapColorRamp": "turbo",
+    "heatmapWeightProperty": "",
+    "clusterRadius": 50,
+    "clusterMaxZoom": 14,
+    "rasterBrightnessMin": 0,
+    "rasterBrightnessMax": 1,
+    "rasterSaturation": 0,
+    "rasterContrast": 0,
+    "rasterHueRotate": 0,
+    "blendMode": "normal"
+   },
+   "metadata": {
+    "customLayerType": "raster",
+    "externalDeckLayer": true,
+    "externalNativeLayer": true,
+    "identifiable": false,
+    "nativeLayerIds": [
+     "flood-nagoya_univ-max"
+    ],
+    "panelCollapsed": true,
+    "rasterOverlayMode": "interleaved",
+    "rasterSource": "url",
+    "rasterState": {
+     "colormap": "blues"
+    },
+    "sourceIds": [],
+    "sourceKind": "maplibre-gl-raster"
+   },
+   "source": {
+    "type": "raster",
+    "url": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/depth_max.tif"
+   },
+   "sourcePath": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/depth_max.tif"
+  }
+ ],
+ "metadata": {
+  "generator": "flood-nagoya geolibre-export",
+  "source": "https://www.data.jma.go.jp/stats/etrn/view/hourly_s1.php?prec_no=51&block_no=47636&year=2026&month=9&day=8&view=1",
+  "scenario": "rain_20260908_47636.json",
+  "frameStyle": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/depth.style.json",
+  "note": "storymap チャプターで時間経過を再生。レイヤーON/OFFでも個別表示可。"
+ },
+ "storymap": {
+  "title": "名古屋大学周辺 浸水リプレイ",
+  "subtitle": "最大 97.5 mm/h・合計 219.5 mm (AMeDAS実測)",
+  "byline": "flood-nagoya GPU浅水シミュレーション",
+  "theme": "dark",
+  "chapters": [
+   {
+    "id": "ch0",
+    "title": "名古屋大学周辺 +0:00",
+    "description": "モデル時刻 +0:00 の浸水深 (m)",
+    "alignment": "left",
+    "hidden": false,
+    "location": {
+     "center": [
+      136.96668,
+      35.15458
+     ],
+     "zoom": 13.5,
+     "pitch": 45,
+     "bearing": 0
+    },
+    "mapAnimation": "flyTo",
+    "onChapterEnter": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0000",
+      "opacity": 0.9,
+      "duration": 800
+     }
+    ],
+    "onChapterExit": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0000",
+      "opacity": 0
+     }
+    ]
+   },
+   {
+    "id": "ch1",
+    "title": "名古屋大学周辺 +1:00",
+    "description": "モデル時刻 +1:00 の浸水深 (m)",
+    "alignment": "left",
+    "hidden": false,
+    "location": {
+     "center": [
+      136.96668,
+      35.15458
+     ],
+     "zoom": 13.5,
+     "pitch": 45,
+     "bearing": 0
+    },
+    "mapAnimation": "flyTo",
+    "onChapterEnter": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0060",
+      "opacity": 0.9,
+      "duration": 800
+     },
+     {
+      "layerId": "flood-nagoya_univ-frame_0000",
+      "opacity": 0,
+      "duration": 800
+     }
+    ],
+    "onChapterExit": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0060",
+      "opacity": 0
+     }
+    ]
+   },
+   {
+    "id": "ch2",
+    "title": "名古屋大学周辺 +2:00",
+    "description": "モデル時刻 +2:00 の浸水深 (m)",
+    "alignment": "left",
+    "hidden": false,
+    "location": {
+     "center": [
+      136.96668,
+      35.15458
+     ],
+     "zoom": 13.5,
+     "pitch": 45,
+     "bearing": 0
+    },
+    "mapAnimation": "flyTo",
+    "onChapterEnter": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0120",
+      "opacity": 0.9,
+      "duration": 800
+     },
+     {
+      "layerId": "flood-nagoya_univ-frame_0060",
+      "opacity": 0,
+      "duration": 800
+     }
+    ],
+    "onChapterExit": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0120",
+      "opacity": 0
+     }
+    ]
+   },
+   {
+    "id": "ch3",
+    "title": "名古屋大学周辺 +3:00",
+    "description": "モデル時刻 +3:00 の浸水深 (m)",
+    "alignment": "left",
+    "hidden": false,
+    "location": {
+     "center": [
+      136.96668,
+      35.15458
+     ],
+     "zoom": 13.5,
+     "pitch": 45,
+     "bearing": 0
+    },
+    "mapAnimation": "flyTo",
+    "onChapterEnter": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0180",
+      "opacity": 0.9,
+      "duration": 800
+     },
+     {
+      "layerId": "flood-nagoya_univ-frame_0120",
+      "opacity": 0,
+      "duration": 800
+     }
+    ],
+    "onChapterExit": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0180",
+      "opacity": 0
+     }
+    ]
+   },
+   {
+    "id": "ch4",
+    "title": "名古屋大学周辺 +4:00",
+    "description": "モデル時刻 +4:00 の浸水深 (m)",
+    "alignment": "left",
+    "hidden": false,
+    "location": {
+     "center": [
+      136.96668,
+      35.15458
+     ],
+     "zoom": 13.5,
+     "pitch": 45,
+     "bearing": 0
+    },
+    "mapAnimation": "flyTo",
+    "onChapterEnter": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0240",
+      "opacity": 0.9,
+      "duration": 800
+     },
+     {
+      "layerId": "flood-nagoya_univ-frame_0180",
+      "opacity": 0,
+      "duration": 800
+     }
+    ],
+    "onChapterExit": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0240",
+      "opacity": 0
+     }
+    ]
+   },
+   {
+    "id": "ch5",
+    "title": "名古屋大学周辺 +5:00",
+    "description": "モデル時刻 +5:00 の浸水深 (m)",
+    "alignment": "left",
+    "hidden": false,
+    "location": {
+     "center": [
+      136.96668,
+      35.15458
+     ],
+     "zoom": 13.5,
+     "pitch": 45,
+     "bearing": 0
+    },
+    "mapAnimation": "flyTo",
+    "onChapterEnter": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0300",
+      "opacity": 0.9,
+      "duration": 800
+     },
+     {
+      "layerId": "flood-nagoya_univ-frame_0240",
+      "opacity": 0,
+      "duration": 800
+     }
+    ],
+    "onChapterExit": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0300",
+      "opacity": 0
+     }
+    ]
+   },
+   {
+    "id": "ch6",
+    "title": "名古屋大学周辺 +5:38",
+    "description": "モデル時刻 +5:38 の浸水深 (m)",
+    "alignment": "left",
+    "hidden": false,
+    "location": {
+     "center": [
+      136.96668,
+      35.15458
+     ],
+     "zoom": 13.5,
+     "pitch": 45,
+     "bearing": 0
+    },
+    "mapAnimation": "flyTo",
+    "onChapterEnter": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0338",
+      "opacity": 0.9,
+      "duration": 800
+     },
+     {
+      "layerId": "flood-nagoya_univ-frame_0300",
+      "opacity": 0,
+      "duration": 800
+     }
+    ],
+    "onChapterExit": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0338",
+      "opacity": 0
+     }
+    ]
+   },
+   {
+    "id": "ch7",
+    "title": "名古屋大学周辺 +6:00",
+    "description": "モデル時刻 +6:00 の浸水深 (m)",
+    "alignment": "left",
+    "hidden": false,
+    "location": {
+     "center": [
+      136.96668,
+      35.15458
+     ],
+     "zoom": 13.5,
+     "pitch": 45,
+     "bearing": 0
+    },
+    "mapAnimation": "flyTo",
+    "onChapterEnter": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0360",
+      "opacity": 0.9,
+      "duration": 800
+     },
+     {
+      "layerId": "flood-nagoya_univ-frame_0338",
+      "opacity": 0,
+      "duration": 800
+     }
+    ],
+    "onChapterExit": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0360",
+      "opacity": 0
+     }
+    ]
+   },
+   {
+    "id": "ch8",
+    "title": "名古屋大学周辺 +7:00",
+    "description": "モデル時刻 +7:00 の浸水深 (m)",
+    "alignment": "left",
+    "hidden": false,
+    "location": {
+     "center": [
+      136.96668,
+      35.15458
+     ],
+     "zoom": 13.5,
+     "pitch": 45,
+     "bearing": 0
+    },
+    "mapAnimation": "flyTo",
+    "onChapterEnter": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0420",
+      "opacity": 0.9,
+      "duration": 800
+     },
+     {
+      "layerId": "flood-nagoya_univ-frame_0360",
+      "opacity": 0,
+      "duration": 800
+     }
+    ],
+    "onChapterExit": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0420",
+      "opacity": 0
+     }
+    ]
+   },
+   {
+    "id": "ch9",
+    "title": "名古屋大学周辺 +8:00",
+    "description": "モデル時刻 +8:00 の浸水深 (m)",
+    "alignment": "left",
+    "hidden": false,
+    "location": {
+     "center": [
+      136.96668,
+      35.15458
+     ],
+     "zoom": 13.5,
+     "pitch": 45,
+     "bearing": 0
+    },
+    "mapAnimation": "flyTo",
+    "onChapterEnter": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0480",
+      "opacity": 0.9,
+      "duration": 800
+     },
+     {
+      "layerId": "flood-nagoya_univ-frame_0420",
+      "opacity": 0,
+      "duration": 800
+     }
+    ],
+    "onChapterExit": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0480",
+      "opacity": 0
+     }
+    ]
+   },
+   {
+    "id": "ch10",
+    "title": "名古屋大学周辺 +9:00",
+    "description": "モデル時刻 +9:00 の浸水深 (m)",
+    "alignment": "left",
+    "hidden": false,
+    "location": {
+     "center": [
+      136.96668,
+      35.15458
+     ],
+     "zoom": 13.5,
+     "pitch": 45,
+     "bearing": 0
+    },
+    "mapAnimation": "flyTo",
+    "onChapterEnter": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0540",
+      "opacity": 0.9,
+      "duration": 800
+     },
+     {
+      "layerId": "flood-nagoya_univ-frame_0480",
+      "opacity": 0,
+      "duration": 800
+     }
+    ],
+    "onChapterExit": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0540",
+      "opacity": 0
+     }
+    ]
+   },
+   {
+    "id": "ch11",
+    "title": "名古屋大学周辺 +10:00",
+    "description": "モデル時刻 +10:00 の浸水深 (m)",
+    "alignment": "left",
+    "hidden": false,
+    "location": {
+     "center": [
+      136.96668,
+      35.15458
+     ],
+     "zoom": 13.5,
+     "pitch": 45,
+     "bearing": 0
+    },
+    "mapAnimation": "flyTo",
+    "onChapterEnter": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0600",
+      "opacity": 0.9,
+      "duration": 800
+     },
+     {
+      "layerId": "flood-nagoya_univ-frame_0540",
+      "opacity": 0,
+      "duration": 800
+     }
+    ],
+    "onChapterExit": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0600",
+      "opacity": 0
+     }
+    ]
+   },
+   {
+    "id": "ch12",
+    "title": "名古屋大学周辺 +11:00",
+    "description": "モデル時刻 +11:00 の浸水深 (m)",
+    "alignment": "left",
+    "hidden": false,
+    "location": {
+     "center": [
+      136.96668,
+      35.15458
+     ],
+     "zoom": 13.5,
+     "pitch": 45,
+     "bearing": 0
+    },
+    "mapAnimation": "flyTo",
+    "onChapterEnter": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0660",
+      "opacity": 0.9,
+      "duration": 800
+     },
+     {
+      "layerId": "flood-nagoya_univ-frame_0600",
+      "opacity": 0,
+      "duration": 800
+     }
+    ],
+    "onChapterExit": [
+     {
+      "layerId": "flood-nagoya_univ-frame_0660",
+      "opacity": 0
+     }
+    ]
+   }
+  ]
+ }
+}

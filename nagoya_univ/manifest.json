@@ -1,0 +1,31 @@
+{
+ "region": "nagoya_univ",
+ "label": "名古屋大学周辺",
+ "files": [
+  "depth_max.tif",
+  "depth.style.json",
+  "frame_0000.tif",
+  "frame_0060.tif",
+  "frame_0120.tif",
+  "frame_0180.tif",
+  "frame_0240.tif",
+  "frame_0300.tif",
+  "frame_0338.tif",
+  "frame_0360.tif",
+  "frame_0420.tif",
+  "frame_0480.tif",
+  "frame_0540.tif",
+  "frame_0600.tif",
+  "frame_0660.tif",
+  "nagoya_univ.geolibre"
+ ],
+ "nFrames": 13,
+ "bounds4326": [
+  136.92805767059326,
+  35.13001749255739,
+  137.00530529022217,
+  35.179140205767474
+ ],
+ "project": "https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/nagoya_univ.geolibre",
+ "viewerUrl": "https://web.geolibre.app/?url=https://huggingface.co/datasets/anosillus/flood-nagoya-geolibre/resolve/main/nagoya_univ/nagoya_univ.geolibre"
+}
