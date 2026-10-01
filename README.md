@@ -272,6 +272,7 @@ just docs    # APIドキュメント生成 (mkdocstrings)
 | `just precompute-surge 1.5` | 海面水位1.5m上昇の事前計算 |
 | `just precompute --underground` | 地下空間内水モデル付き事前計算 |
 | `uv run python -m flood_nagoya validate --region web/precomputed/<r> --swot <nc> [--swot-pre <nc>] [--nisar-pre/--nisar-post <h5>]` | 衛星観測 (SWOT/NISAR/S1) と浸水範囲を比較 → `reports/satellite/` |
+| `uv run python -m flood_nagoya geolibre-export --region web/precomputed/<r> --base-url <公開URL>` | リプレイをGeoLibre用COG+.geolibreプロジェクトに変換 → `outputs/geolibre/` (要 `--extra experiment`) |
 
 ## 🔄 テンプレートからの更新
 

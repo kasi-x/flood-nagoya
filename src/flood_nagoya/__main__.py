@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from argparse import ArgumentParser
 from argparse import Namespace
+from argparse import _SubParsersAction
 from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
@@ -143,8 +144,29 @@ def _build_parser() -> ArgumentParser:
     val.add_argument("--s1-pre", type=Path, default=None, help="Sentinel-1 GRD SAFE展開済みdir (事前)")
     val.add_argument("--s1-post", type=Path, default=None, help="Sentinel-1 GRD SAFE展開済みdir (事後)")
     val.add_argument("--out", type=Path, default=None, help="出力先 (既定: reports/satellite/<region名>)")
-
+    _add_geolibre_parser(sub)
     return parser
+
+
+def _add_geolibre_parser(sub: _SubParsersAction[ArgumentParser]) -> None:
+    """Register the ``geolibre-export`` subcommand (GeoLibre COG export)."""
+    geo = sub.add_parser(
+        "geolibre-export",
+        help="precomputedリプレイをGeoLibre用COG+.geolibreプロジェクトに変換する",
+    )
+    geo.add_argument("--region", type=Path, required=True, help="precomputedリージョンのディレクトリ")
+    geo.add_argument(
+        "--base-url",
+        required=True,
+        help="COG等をホストする公開URLプレフィックス (例: HF datasets の resolve/main/...)",
+    )
+    geo.add_argument("--out", type=Path, default=None, help="出力先 (既定: outputs/geolibre/<region名>)")
+    geo.add_argument(
+        "--every",
+        type=float,
+        default=3600.0,
+        help="キーフレーム間隔 [秒] (既定: 3600)",
+    )
 
 
 def _dispatch(parsed: Namespace) -> None:  # noqa: C901 - one branch per subcommand
@@ -206,6 +228,13 @@ def _dispatch(parsed: Namespace) -> None:  # noqa: C901 - one branch per subcomm
         )
         for name, res in results.items():
             print(f"{name}: {summarize(res)}")
+    elif parsed.command == "geolibre-export":
+        from .geolibre import export_region  # noqa: PLC0415 - experiment extra deps
+
+        out = parsed.out or Path("outputs/geolibre") / parsed.region.name
+        manifest = export_region(parsed.region, out, parsed.base_url, every_s=parsed.every)
+        print(f"project: {manifest['project']}")
+        print(f"viewer: {manifest['viewerUrl']}")
 
 
 def main(args: Sequence[str] | None = None) -> None:

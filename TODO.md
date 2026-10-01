@@ -225,3 +225,31 @@
 - 複数の操作ルールを並列計算し、浸水被害指標 (面積・最深・継続時間) で
   比較して「実際の操作は最適だったか」を評価する枠組み
 - 評価指標は `validate.py` の衛星比較と整合させる
+
+## GeoLibre エクスポート (2026-10-01 実装・検証済み)
+
+外部 GIS プラットフォーム連携として GeoLibre (MapLibre GL JS ベース、
+`geolibre.app`) を評価・採用。結果は時間表現を除きほぼ完全に動作する。
+
+### 実装
+- `src/flood_nagoya/geolibre.py` + CLI `flood-nagoya geolibre-export`
+  - precomputed PNG フレーム (Rチャンネル=水深cm) → EPSG:3857 COG (float32 m)
+  - 最大水深 COG + キーフレーム COG 群 (既定 1h 間隔 + ピーク時)
+  - `depth.style.json` (blues colormap, rescale 0..3m, nodata=0→透明)
+  - `<region>.geolibre` プロジェクト JSON (13レイヤー + storymap チャプター)
+- ホスティング: GitHub Pages (`gh-pages` ブランチ、`kasi-x.github.io/flood-nagoya/`)
+  - Range request + `Access-Control-Allow-Origin: *` 確認済み → COG ストリーミング可
+  - HF datasets は `anosillus` トークンがリポジトリ作成権限なしで不採用
+
+### 検証済み (ブラウザ実機)
+- `?data=<cog_url>&style=<style_url>` で COG 直接読み込み → 水深が正しく地理参照・着色される
+- `?url=<project.geolibre>` でプロジェクト読み込み → storymap モード起動、
+  チャプター選択でフレームレイヤーが opacity トランジションで切り替わる
+- ビュワーURL: `https://web.geolibre.app/?url=https://kasi-x.github.io/flood-nagoya/nagoya_univ/nagoya_univ.geolibre`
+
+### 残課題
+- ネイティブ時間スライダー: GeoLibre の time slider はベクタータイル対象で
+  ラスター COG の時系列は未対応。storymap チャプターで擬似リプレイ実現済み
+- `maplibre-gl-time-slider` プラグインのラスター対応可否は未検証
+- deck.gl ビュワーとの役割分担: deck.gl はインタラクティブ 3D 探索、
+  GeoLibre は成果共有・公開向け (軽量・URLで即開く)
