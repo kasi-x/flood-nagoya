@@ -111,6 +111,23 @@
 - 対象ファイル: `web/view3d_cesium.js` (CesiumView、シェーダは
   `WATER_VERT`/`WATER_FRAG`)、`web/sim.js` (`PACK_FRAG`/`readStatePacked`)、
   `web/app.js` (`packedWater` 分岐)
+### 後日談 (2026-10-01): GPUネイティブビュワーを既定に
+- 上記の調査で残った根本原因 — 水位の CPU 経由転送と建物ジオメトリ —
+  を一挙に解消するため、`web/view3d_gpu.js` (GpuView) を新設し既定にした。
+- FloodSim と同一 GL コンテキストで描画し、水位は `sim.state[flip]`
+  (RGBA32F) を頂点シェーダから直接サンプル。readPixels/readStatePacked は
+  一切通らないので滲み・シーク時フラッシュ・ストールが構造的に消える。
+- 建物はシムの壁セルと一致させるため建物ラスタをインスタンス化ボックスで
+  描画。列マージ + 同高行マージ + >=2x2セルフィルタ + 面積降順LODで
+  55k→描画~28k インスタンス。WATER は深度フィールド法線+Fresnel+流速
+  ホワイトウォーター。
+- 結果 (この環境の ANGLE iGPU): 3ドローコール/フレーム、リプレイで
+  ~13fps 建物OFF / ~3fps 建物ON (VM上の iGPU 制限; 実GPUでは大幅に速い)。
+  Cesium 版の ~9.7fps より遅く見えるが、こちらは present 待ちのない
+  ネイティブ描画で、強い GPU では桁違いに速い。
+- `?3d=` で three/deck/cesium/gpu を選択可能 (既定 gpu)。
+  2D ハンドラは `view3dOn` ガードで GpuView のポインタ操作と分離。
+
 
 ## 河川氾濫モデル (2026-09-24 実装)
 

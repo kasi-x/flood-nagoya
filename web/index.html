@@ -277,11 +277,12 @@
         <div id="view3dOpts" hidden>
           <h3>3Dビュワー</h3>
           <div class="seg" role="radiogroup" aria-label="3Dビュワー">
+            <label class="seg-item"><input type="radio" name="viewer3d" value="gpu" checked><span>GPU</span></label>
             <label class="seg-item"><input type="radio" name="viewer3d" value="three"><span>three.js</span></label>
             <label class="seg-item"><input type="radio" name="viewer3d" value="deck"><span>deck.gl</span></label>
             <label class="seg-item"><input type="radio" name="viewer3d" value="cesium"><span>CesiumJS</span></label>
           </div>
-          <p class="hint" id="viewer3dHint">CesiumJS (既定): 地形に正確に沈む建物・水深の立体表示 / deck.gl: PLATEAU 3D Tiles (現寸建物) / three.js: 軽量ローカル描画</p>
+          <p class="hint" id="viewer3dHint">GPU (既定): シムと同一コンテキストで直接描画 — 最速・滲みなし / CesiumJS: 地球儀+3D Tiles / deck.gl: PLATEAU実寸建物 / three.js: 軽量ローカル描画</p>
           <button id="lite3dBtn" class="wide" title="deck.gl を 写真OFF・建物簡易・地形low・LOD1 で起動します"><svg class="ic">
               <use href="#i-mountain" />
             </svg>軽量3Dプリセット (deck.gl)</button>

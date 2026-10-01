@@ -4,6 +4,7 @@ import { FloodSim, MODE_DEPTH, MODE_MAXDEPTH, MODE_SPEED, MODE_TERRAIN } from ".
 import { ThreeView } from "./view3d.js?v=24";
 import { CesiumView } from "./view3d_cesium.js?v=40";
 import { DeckView } from "./view3d_deck.js?v=29";
+import { GpuView } from "./view3d_gpu.js?v=2";
 import { extractChannels } from "./river.js?v=2";
 
 const Z15 = 15;
@@ -83,8 +84,8 @@ const liteDefault = qs.get("lite") === "1" || (qs.get("lite") !== "0" && detectS
 if (liteDefault && qs.get("lite") !== "1") {
   console.info("ソフトウェアレンダリング環境を検出: 軽量3D既定を適用します (?lite=0 で解除)");
 }
-let view3dKind = ["three", "deck", "cesium"].includes(qs.get("3d"))
-  ? qs.get("3d") : (liteDefault ? "deck" : "cesium");
+let view3dKind = ["three", "deck", "cesium", "gpu"].includes(qs.get("3d"))
+  ? qs.get("3d") : "gpu";   // GPUネイティブ描画を既定 (旧ビュワーは ?3d= で選択)
 const photoDefault = qs.has("photo") ? qs.get("photo") !== "0" : !liteDefault;
 const bldgParam = qs.get("bldg");
 const bldgDefault = bldgParam != null ? bldgParam !== "0" : !liteDefault;
@@ -95,7 +96,7 @@ let terrainQuality = ["low", "medium", "high"].includes(qs.get("terrain") || "")
   ? qs.get("terrain") : (liteDefault ? "low" : "high");        // deck.gl 地形クオリティ
 let deckLod = qs.get("lod") === "1" || qs.get("lod") === "2"
   ? qs.get("lod") : (liteDefault ? "1" : "2");                 // PLATEAU建物LOD (deck.gl)
-const view3ds = { three: null, deck: null, cesium: null };
+const view3ds = { three: null, deck: null, cesium: null, gpu: null };
 let view3d = null, view3dOn = false, frameNo = 0;
 let regionInfo = null;   // {terrain, bldg, W, H, dx} of the current sim grid
 const perfHud = new PerfHud();
@@ -449,8 +450,10 @@ function startDefaultScene() {
       if (location.search.includes("noff")) { sim.paused = true; return; }  // 検証用
       const refresh = () => {
         if (view3d) {
-          view3d.updateWater(view3d.packedWater && sim.readStatePacked
-            ? sim.readStatePacked() : sim.readState());
+          if (!view3d.directWater) {
+            view3d.updateWater(view3d.packedWater && sim.readStatePacked
+              ? sim.readStatePacked() : sim.readState());
+          }
           view3d.ensureFrame?.();
         }
       };
@@ -1219,6 +1222,7 @@ function backToMap() {
 function wireUI() {
   const canvas = $("gl");
   canvas.addEventListener("pointerdown", (e) => {
+    if (view3dOn) return;   // 3Dビューが #gl を使用中
     if (mode === "sim") {
       drag = { pan: true, sx: e.clientX, sy: e.clientY, panView: { ...sim.view } };
       canvas.setPointerCapture(e.pointerId);
@@ -1269,6 +1273,7 @@ function wireUI() {
   canvas.addEventListener("contextmenu", (e) => e.preventDefault());
   canvas.addEventListener("wheel", (e) => {
     e.preventDefault();
+    if (view3dOn) return;
     const v = mode === "map" ? mapView : sim.view;
     if (!v) return;
     const before = screenToMap(e.clientX, e.clientY);
@@ -1312,6 +1317,7 @@ function wireUI() {
   $("waveToggle").addEventListener("change", (e) => {
     sim.setParams({ waves: e.target.checked ? 1 : 0 });
     if (view3ds.three) view3ds.three.setWaves(e.target.checked);
+    if (view3ds.gpu) view3ds.gpu.setWaves(e.target.checked);
   });
   $("flowToggle").addEventListener("change", (e) => {
     flow.setEnabled(e.target.checked);
@@ -1324,6 +1330,7 @@ function wireUI() {
     if (view3ds.three) view3ds.three.setStreamsVisible(e.target.checked);
     if (view3ds.deck) view3ds.deck.setStreamsVisible(e.target.checked);
     if (view3ds.cesium) view3ds.cesium.setStreamsVisible(e.target.checked);
+    if (view3ds.gpu) view3ds.gpu.setStreamsVisible(e.target.checked);
   });
   if ($("satSimToggle")) $("satSimToggle").addEventListener("change", (e) => {
     if (sim) sim.satOverlay = e.target.checked;
@@ -1348,10 +1355,12 @@ function wireUI() {
   });
   $("photo3dToggle").checked = photoDefault;
   $("photo3dToggle").addEventListener("change", (e) => {
+    if (view3ds.gpu) view3ds.gpu.setPhotoVisible(e.target.checked);
     if (view3d) view3d.setPhotoVisible(e.target.checked);
   });
   $("bldg3dToggle").checked = bldgDefault;
   $("bldg3dToggle").addEventListener("change", (e) => {
+    if (view3ds.gpu) view3ds.gpu.setBuildingsVisible(e.target.checked);
     if (view3d) view3d.setBuildingsVisible(e.target.checked);
   });
   // deck.gl 建物ソース (PLATEAU実寸タイル / 簡易ローカルラスタ箱)
@@ -1419,6 +1428,7 @@ function wireUI() {
   $("exag").addEventListener("input", () => {
     const v = parseFloat($("exag").value);
     $("exagVal").textContent = v.toFixed(1) + "×";
+    if (view3ds.gpu) view3ds.gpu.setExag(v);
     if (view3ds.three && regionInfo) {
       view3ds.three.setExag(v);
       view3ds.three.setRegion(regionInfo.W, regionInfo.H, regionInfo.dx,
@@ -1501,6 +1511,7 @@ function zoomView(f) {
 
 /** 現在の選択ビュワーを生成する (遅延初期化)。 */
 function createView3d(kind) {
+  if (kind === "gpu") return new GpuView(sim);   // sim と同一GLコンテキスト
   if (kind === "deck") return new DeckView($("gldeck"));
   if (kind === "cesium") return new CesiumView($("cesium3d"));
   const v = new ThreeView($("gl3d"));
@@ -1524,26 +1535,30 @@ function set3d(on) {
       const v = view3ds[k];
       if (!v) continue;
       v.hide();
+      // gpu は #gl (シムキャンバス) を共用するため個別canvasは持たない
       $("gl3d").hidden = k !== "three";
       $("gldeck").hidden = k !== "deck";
       $("cesium3d").hidden = k !== "cesium";
     }
+    $("gl3d").hidden = view3dKind !== "three";
+    $("gldeck").hidden = view3dKind !== "deck";
+    $("cesium3d").hidden = view3dKind !== "cesium";
     view3d.show();
     if (prev && prev !== view3d) prev.hide();
     applyRegionTo3d();
-    $("gl").style.visibility = "hidden";
+    $("gl").style.visibility = view3dKind === "gpu" ? "" : "hidden";   // gpu は #gl に直接描く
     $("view3dOpts").hidden = false;
     // 3Dでは #north をコンパスではなく視点リセットボタンとして使う
-    $("north").hidden = view3dKind !== "cesium" && view3dKind !== "deck";
+    $("north").hidden = !["cesium", "deck", "gpu"].includes(view3dKind);
     $("north").title = "視点をリセット";
     $("north").style.cursor = "pointer";
     for (const loc of LOCATIONS) loc.el.style.display = "none";
     view3d.resize();
     perfHud.setView(view3d);
     // three.js / deck.gl 専用オプションの表示切替
-    $("exagCtl").hidden = view3dKind !== "three";
-    $("waveCtl").hidden = view3dKind !== "three";
-    $("flowCtl").hidden = false;
+    $("exagCtl").hidden = view3dKind !== "three" && view3dKind !== "gpu";
+    $("waveCtl").hidden = view3dKind !== "three" && view3dKind !== "gpu";
+    $("flowCtl").hidden = view3dKind === "gpu";   // gpu は流線未対応
     $("rainCtl").hidden = view3dKind !== "deck";
     $("weatherCtl").hidden = view3dKind !== "deck";
     $("bldgSrcCtl").hidden = view3dKind !== "deck";
@@ -1565,6 +1580,14 @@ function set3d(on) {
       if (streamsImg) view3ds.cesium.setStreamsCanvas(streamsImg);
       view3ds.cesium.setFlowEnabled(flow.on);
       view3ds.cesium.setLocations(LOCATIONS);
+    }
+    if (view3dKind === "gpu") {
+      view3ds.gpu.setPhotoVisible($("photo3dToggle").checked);
+      view3ds.gpu.setBuildingsVisible($("bldg3dToggle").checked);
+      view3ds.gpu.setStreamsVisible($("streamsSimToggle").checked);
+      view3ds.gpu.setWaves($("waveToggle").checked);
+      view3ds.gpu.setExag(parseFloat($("exag").value || "2"));
+      if (streamsImg) view3ds.gpu.setStreamsCanvas(streamsImg);
     }
     toast(`3D表示中 (${view3dKind}) — ドラッグで回転・ホイールでズーム・右ドラッグで移動`);
     // ?bench=秒 があれば自動でベンチを走らせる (軽さ比較用)
@@ -1603,8 +1626,11 @@ function applyRegionTo3d() {
   if (view3ds.cesium) {
     view3ds.cesium.setStreamsVisible($("streamsSimToggle").checked);
   }
+  if (view3ds.gpu) {
+    view3ds.gpu.setStreamsVisible($("streamsSimToggle").checked);
+  }
   // リプレイ中は region再構築で水位が消えるので、現フレームを再バインドする
-  if (playback.on && playback.cur >= 0 && playback.cache.has(playback.cur)) {
+  if (playback.on && playback.cur >= 0 && playback.cache.has(playback.cur) && !view3d.directWater) {
     view3d.updateWater(playback.cache.get(playback.cur));
   }
 }
@@ -2137,10 +2163,11 @@ function loop() {
   if (!sim.W || sim.mapMode) return;
   frameNo++;
   rainFrames.update();
-  if (view3dOn && view3d && !playback.on && frameNo % 8 === 0) {
+  if (view3dOn && view3d && !playback.on && !view3d.directWater && frameNo % 8 === 0) {
     // ANGLE ではフル解像度の Float32 readPixels が数百ms〜秒級に止まる。
     // packedWater を宣言するビュワー (Cesium) には 1/4 解像度 RGBA8 の
     // GPUダウンサンプル結果を渡し、それ以外は従来どおり readState()。
+    // directWater (gpuビュー) は state テクスチャを直接描くため読み戻さない。
     view3d.updateWater(view3d.packedWater && sim.readStatePacked
       ? sim.readStatePacked() : sim.readState());
     // deck.glの雨パーティクルに現在の雨強度を伝える
